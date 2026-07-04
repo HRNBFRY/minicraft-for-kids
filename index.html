@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MiniCraft - Creative Voxel World</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="setupScreen"></div>
+<div id="hud"></div>
+<div id="crosshair"></div>
+<div id="curblock"><img id="curIcon" alt=""><span id="curName"></span></div>
+<div id="inventory" class="hidden">
+  <div id="invPanel">
+    <h2>クリエイティブ インベントリ（E / Esc で閉じる）</h2>
+    <div id="invGrid"></div>
+  </div>
+</div>
+<div id="hint">
+  <div class="box">
+    <h1>MiniCraft</h1>
+    <div class="start">クリックしてスタート</div>
+    <div class="keys">
+      WASD: 移動　/　マウス: 視点　/　Space: ジャンプ（×2で飛行）<br>
+      飛行中 Space・Shift: 上昇・下降　/　左クリック: 破壊　/　右クリック: 設置<br>
+      ホイール: ブロック切替　/　E: インベントリ　/　F: 影MOD　/　Esc: マウス解除<br>
+      <b>🎮 Proコン(USB・Switch版マイクラと同じ配置):</b> 左スティック移動・右スティック視点・B: ジャンプ（×2で飛行・Aで下降）<br>
+      ZR: 破壊　/　ZL: 設置　/　L・R: ブロック切替（同時押しでスクリーンショット）　/　X・Y: インベントリ<br>
+      左スティック押込み: 影MOD（独自機能）　/　＋: スタート・ポーズ<br>
+      <b>ネザーへ:</b> 黒曜石で枠(4×5)→内側に火打石　<b>エンドへ:</b> 3×3の周りにフレーム12個＋エンダーアイ<br>
+      <b>作業台:</b> 右クリックでクラフト画面　/　自動セーブ（localStorage）
+    </div>
+  </div>
+</div>
+<div id="msg"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

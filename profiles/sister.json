@@ -1,0 +1,10 @@
+{
+  "id": "sister",
+  "extends": "default",
+  "playerName": "いもうと",
+  "skin": { "color": "#ff6fa8" },
+  "difficulty": "easy",
+  "enabledFeatures": { "pet": true },
+  "initialItems": ["WOOL", "GLOW", "eye"],
+  "pet": { "kind": "cube", "color": "#ff9fd0", "name": "もこもこ" }
+}

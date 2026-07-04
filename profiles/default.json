@@ -1,0 +1,15 @@
+{
+  "id": "default",
+  "playerName": "プレイヤー",
+  "skin": { "color": "#4fa8ff" },
+  "difficulty": "normal",
+  "enabledFeatures": {
+    "inventory": true,
+    "dragon": true,
+    "pet": false,
+    "shadows": true,
+    "gamepad": true
+  },
+  "initialItems": [],
+  "pet": { "kind": "cube", "color": "#ffcc00", "name": "ペット" }
+}

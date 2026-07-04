@@ -1,0 +1,10 @@
+{
+  "id": "brother",
+  "extends": "default",
+  "playerName": "おにいちゃん",
+  "skin": { "color": "#3a7bd5" },
+  "difficulty": "normal",
+  "enabledFeatures": { "pet": true },
+  "initialItems": ["WOOD", "STONE", "flint"],
+  "pet": { "kind": "cube", "color": "#55c0ff", "name": "ロボわん" }
+}

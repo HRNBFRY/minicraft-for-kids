@@ -1,0 +1,38 @@
+{
+  "id": "fantasy",
+  "name": "ファンタジーワールド",
+  "seed": 20260705,
+  "worldSize": 512,
+  "chunkSize": 16,
+  "height": 128,
+  "renderDist": 6,
+  "gravityMultiplier": 0.9,
+  "movement": { "walk": 5.6, "fly": 12, "water": 3.2 },
+  "palette": {
+    "grass": [150, 110, 220],
+    "leaves": [120, 70, 200],
+    "stone": [140, 120, 160],
+    "sand": [230, 200, 255]
+  },
+  "terrain": {
+    "overworld": {
+      "sea": 30,
+      "snowLine": 72,
+      "biomeThresholds": { "desertTemp": 0.6, "desertWet": 0.15, "forestWet": 0.15, "mountainHeight": 56 },
+      "treeDensity": { "forest": 0.04, "plains": 0.012, "snow": 0.008, "mountain": 0.01 },
+      "ores": [
+        { "id": "GRAVEL", "chance": 0.035, "minY": 0, "maxY": 128 },
+        { "id": "COAL_ORE", "chance": 0.018, "minY": 5, "maxY": 60 },
+        { "id": "IRON_ORE", "chance": 0.02, "minY": 5, "maxY": 50 }
+      ]
+    },
+    "nether": { "lavaLevel": 32, "wallChance": 0.78, "glowChance": 0.06, "oreChance": 0.03 },
+    "end": { "islandRadius": 90, "pillarCount": 6 }
+  },
+  "monsters": ["dragon"],
+  "plants": { "trees": true },
+  "weather": { "enabled": true, "type": "rain" },
+  "dayNightCycle": { "enabled": true, "dayLengthSec": 480 },
+  "bgm": null,
+  "specialEvents": []
+}
