@@ -101,6 +101,9 @@ export class OpenWorldGen {
     this.LM = p.landmarkCell != null ? p.landmarkCell : 176; // セル辺長
     this.LM_MAXR = 40;   // 構造物の最大水平半径（近傍セル探索範囲）
     this.UG = 148;       // 地下構造グリッド
+    // 都市（Phase3）: ランドマークより大きなセルで、確率的に1つ都市を配置
+    this.CITY = p.cityCell != null ? p.cityCell : 512;
+    this.cityChance = p.cityChance != null ? p.cityChance : 0.35;
   }
 
   // 峡谷の強さ 0..1（1に近いほど谷底）。陸の高台にだけ深い渓谷を刻む。
@@ -141,6 +144,52 @@ export class OpenWorldGen {
     // 温帯・森林・草原一般
     if (h > sea + 26) return r < 0.5 ? 'waterfall' : (r < 0.8 ? 'arch' : 'tower');
     return r < 0.42 ? 'giant_tree' : (r < 0.64 ? 'tower' : (r < 0.82 ? 'float' : 'arch'));
+  }
+
+  // 都市記述子: セル(cx,cz)に確率で1つ。位置・タイプ・規模・基準面は決定的。
+  cityCell(cx, cz) {
+    const s = this.seed, CITY = this.CITY;
+    if (hash2(cx, cz, s ^ 0x3c01) >= this.cityChance) return null;
+    const m = 90;
+    const ax = cx * CITY + m + (hash2(cx, cz, s ^ 0x3c11) * (CITY - m * 2) | 0);
+    const az = cz * CITY + m + (hash2(cx, cz, s ^ 0x3c22) * (CITY - m * 2) | 0);
+    const col = this.column(ax, az);
+    const r = hash2(cx, cz, s ^ 0x3c33);
+    const type = this._cityType(col, r);
+    const R = 46 + (hash2(cx, cz, s ^ 0x3c44) * 26 | 0); // 46-71
+    // 海方向を軽くサンプルし、港町の桟橋の向きに使う
+    let sx = 0, sz = 0, seaCnt = 0;
+    for (let k = 0; k < 8; k++) {
+      const ang = k / 8 * Math.PI * 2;
+      const px = ax + Math.round(Math.cos(ang) * (R + 20));
+      const pz = az + Math.round(Math.sin(ang) * (R + 20));
+      if (this.column(px, pz).h < this.sea - 1) { sx += Math.cos(ang); sz += Math.sin(ang); seaCnt++; }
+    }
+    const seaAng = seaCnt > 0 ? Math.atan2(sz, sx) : 0;
+    // 基準面（整地の高さ）: アンカー＋周囲4点のhを平均
+    let hs = col.h;
+    for (const [ddx, ddz] of [[R * 0.5, 0], [-R * 0.5, 0], [0, R * 0.5], [0, -R * 0.5]])
+      hs += this.column(ax + Math.round(ddx), az + Math.round(ddz)).h;
+    let base = Math.round(hs / 5);
+    if (type === 'island' || type === 'harbor') base = this.sea + 2 + (hash2(cx, cz, s ^ 0x3c55) * 3 | 0);
+    base = clamp(base, 4, 118);
+    return { type, ax, az, R, base, seaAng, hasSea: seaCnt > 0, r, fseed: (hash2(cx, cz, s ^ 0x3c66) * 1e9) | 0 };
+  }
+  _cityType(col, r) {
+    const { h, biome } = col, sea = this.sea;
+    if (h < sea - 4) return 'island'; // 深めの海 → 人工島の都市
+    switch (biome) {
+      case OB.VOLCANO: return 'volcano';
+      case OB.SNOWY_PLAINS: case OB.SNOWY_TAIGA: case OB.GLACIER:
+      case OB.SNOWY_PEAKS: case OB.FROZEN_OCEAN: return 'snow';
+      case OB.MOUNTAINS: case OB.ROCKY_PEAKS: case OB.HIGHLANDS: return 'mountain';
+      case OB.JUNGLE: case OB.BAMBOO: case OB.DARK_FOREST: case OB.MUSHROOM:
+        return r < 0.5 ? 'giant_tree' : 'forest';
+      case OB.FOREST: case OB.TAIGA: case OB.MOUNTAIN_FOREST: case OB.AUTUMN: case OB.CHERRY:
+        return r < 0.35 ? 'giant_tree' : 'forest';
+    }
+    if (h <= sea + 3 || biome === OB.BEACH || biome === OB.STONE_SHORE || biome === OB.CORAL_REEF) return 'harbor';
+    return 'stone';
   }
 
   // 地下構造: グリッド確率で配置。地下湖 / 神殿 / 巨大空洞。

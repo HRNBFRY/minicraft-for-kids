@@ -15,6 +15,8 @@ export function buildOffsets() {
   return OFFSETS;
 }
 const NB4 = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+const smooth01 = t => t * t * (3 - 2 * t);
 
 export class Chunk {
   constructor(world, cx, cz) {
@@ -204,6 +206,15 @@ export class Chunk {
       const f = gen.undergroundCell(ux, uz);
       if (f && this.bboxHits(f.ax, f.az, UR)) this.stampUnderground(f);
     }
+    // 都市（Phase3）: ランドマークより大きいセルを確率的に走査
+    const CITY = gen.CITY, CR = 200; // 探索マージン（実際の都市半径は f.R で個別判定）
+    const cx0c = Math.floor((x0 - CR) / CITY), cx1c = Math.floor((x0 + 15 + CR) / CITY);
+    const cz0c = Math.floor((z0 - CR) / CITY), cz1c = Math.floor((z0 + 15 + CR) / CITY);
+    for (let cz = cz0c; cz <= cz1c; cz++) for (let cx = cx0c; cx <= cx1c; cx++) {
+      if (cx < 0 || cz < 0) continue;
+      const f = gen.cityCell(cx, cz);
+      if (f && this.bboxHits(f.ax, f.az, f.R)) this.stampCity(f);
+    }
   }
   bboxHits(ax, az, R) {
     const x0 = this.cx * 16, z0 = this.cz * 16;
@@ -392,6 +403,134 @@ export class Chunk {
       const th = Math.round(top - (d / rad) * (top - sea));
       for (let y = sea - 3; y <= th; y++) this.setLocal(gx, y, gz, y >= th - 1 ? B.SAND : B.STONE);
       if (dx === 0 && dz === 0) this.drawTree(gx, th, gz, 'palm');
+    });
+  }
+
+  /* ========== Phase3: 都市生成（Procedural City） ==========
+   * ランドマークと同じ決定的セル方式（cityCell）。まず整地→道路グリッド→広場→
+   * 建物の順に、このチャンクに重なる範囲だけを列単位で判定して書き込む。 */
+  _cityPalette(type) {
+    switch (type) {
+      case 'stone':      return { wall: B.STONE_BRICK, wallAlt: B.MOSSY_STONE_BRICK, floor: B.STONE_BRICK, road: B.COBBLE, roof: B.BRICK, wallHeight: [5, 8] };
+      case 'harbor':     return { wall: B.PLANKS, wallAlt: B.COBBLE, floor: B.PLANKS, road: B.GRAVEL, roof: B.PLANKS, wallHeight: [4, 6] };
+      case 'mountain':   return { wall: B.STONE_BRICK, wallAlt: B.STONE, floor: B.STONE, road: B.STONE, roof: B.STONE_BRICK, wallHeight: [5, 7] };
+      case 'island':     return { wall: B.QUARTZ_BLOCK, wallAlt: B.SAND, floor: B.SAND, road: B.QUARTZ_BLOCK, roof: B.QUARTZ_BLOCK, wallHeight: [4, 6] };
+      case 'snow':       return { wall: B.PLANKS, wallAlt: B.STONE_BRICK, floor: B.SNOW, road: B.STONE, roof: B.SNOW, wallHeight: [4, 6] };
+      case 'volcano':    return { wall: B.NETHER_BRICK, wallAlt: B.STONE_BRICK, floor: B.STONE_BRICK, road: B.STONE, roof: B.NETHER_BRICK, wallHeight: [5, 8] };
+      case 'giant_tree': return { wall: B.PLANKS, wallAlt: B.WOOD, floor: B.PLANKS, road: B.DIRT, roof: B.PLANKS, wallHeight: [3, 5] };
+      default:           return { wall: B.PLANKS, wallAlt: B.WOOD, floor: B.PLANKS, road: B.DIRT, roof: B.PLANKS, wallHeight: [3, 5] }; // forest
+    }
+  }
+  stampCity(f) {
+    const w = this.world, gen = w.gen, sea = w.terrain.sea;
+    const pal = this._cityPalette(f.type);
+    const organic = f.type === 'forest' || f.type === 'giant_tree';
+    const enclosed = f.type === 'stone' || f.type === 'mountain' || f.type === 'volcano' || f.type === 'snow';
+    const BS = organic ? 10 : 14;     // 街区の一辺
+    const RW = organic ? 2 : 3;       // 道幅
+    const plazaR = organic ? 7 : 10;  // 中央広場の半径
+    const wallBand = enclosed ? 14 : 0;
+    const coreR = f.R - wallBand - 6; // 道路・建物を置く実効半径
+    this._each(f.ax, f.az, f.R, (gx, gz) => {
+      const dx = gx - f.ax, dz = gz - f.az, d = Math.sqrt(dx * dx + dz * dz);
+      if (d > f.R) return;
+      const c = gen.column(gx, gz);
+      const t = smooth01(clamp01((f.R - d) / 16)); // 1=都市中心 0=元の地形
+      let groundH = Math.round(c.h + (f.base - c.h) * t);
+      groundH = Math.max(sea - 6, Math.min(122, groundH));
+      const core = d <= coreR;
+      // 整地: 地下は鉱石抽選、表層は都市中心なら舗装、外周は自然の地表へ自然に溶かす
+      for (let y = 1; y < groundH - 3; y++) this.setLocal(gx, y, gz, w.pickUnderground(gx, y, gz));
+      for (let y = Math.max(1, groundH - 3); y < groundH; y++) this.setLocal(gx, y, gz, core ? B.STONE : c.sub);
+      this.setLocal(gx, groundH, gz, core ? pal.floor : c.surf);
+      for (let y = groundH + 1; y <= f.base + 30; y++) this.setLocal(gx, y, gz, B.AIR); // 旧地形・木を除去
+      if (groundH < sea) for (let y = groundH + 1; y <= sea; y++) this.setLocal(gx, y, gz, B.WATER);
+
+      const mxp = ((dx % BS) + BS) % BS, mzp = ((dz % BS) + BS) % BS;
+      const isRoad = mxp < RW || mzp < RW;
+      // 城壁: coreR のすぐ外側。道路が通る位置には門を開ける
+      if (enclosed && d > coreR - 1 && d < coreR + 3 && !isRoad) {
+        const wh = 5;
+        for (let y = groundH + 1; y <= groundH + wh; y++)
+          this.setLocal(gx, y, gz, hash3(gx, y, gz, f.fseed ^ 0x77) < 0.25 ? pal.wallAlt : pal.wall);
+        if (f.type === 'volcano' && d > coreR + 1) this.setLocal(gx, groundH, gz, B.LAVA);
+      }
+      if (f.type === 'island' && d > coreR) this.setLocal(gx, groundH, gz, B.SAND); // 浜辺
+      if (!core) return;
+
+      const isPlaza = d <= plazaR;
+      if (isPlaza) {
+        if (f.type === 'giant_tree') { // 広場中央に巨木のランドマークを兼ねる
+          const trunk = Math.abs(dx) <= 1 && Math.abs(dz) <= 1;
+          const topY = f.base + 24;
+          if (trunk) for (let y = groundH + 1; y <= topY; y++) this.setLocal(gx, y, gz, B.WOOD);
+          const cr = plazaR - 1;
+          for (let y = topY - cr; y <= topY + cr - 2; y++) {
+            const dy = (y - topY) * 1.1;
+            if (dx * dx + dz * dz + dy * dy <= cr * cr) this.setLocalIfEmpty(gx, y, gz, B.LEAVES);
+          }
+        } else {
+          if (d < 2.5) { this.setLocal(gx, groundH, gz, B.WATER); this.setLocal(gx, groundH - 1, gz, B.STONE); } // 噴水
+          const lampR = Math.round(plazaR * 0.7);
+          if ((Math.abs(dx) === lampR && dz === 0) || (Math.abs(dz) === lampR && dx === 0))
+            this.setLocal(gx, groundH + 1, gz, B.GLOW);
+        }
+        return;
+      }
+      if (isRoad) { this.setLocal(gx, groundH, gz, pal.road); return; }
+
+      // プロット（建物・市場・庭）
+      const px = Math.floor(dx / BS), pz = Math.floor(dz / BS);
+      const hb = hash2(px, pz, f.fseed ^ 0x9001);
+      const plotCx = px * BS + BS / 2, plotCz = pz * BS + BS / 2;
+      const plotDist = Math.sqrt(plotCx * plotCx + plotCz * plotCz);
+      const isMarketRing = plotDist < plazaR + BS * 1.6;
+      const kind = hb < 0.14 ? 'garden' : (isMarketRing && hb < 0.5 ? 'market' : 'house');
+      const blx = mxp - RW, blz = mzp - RW; // プロット内ローカル座標
+      const avail = BS - RW - 1;
+      if (kind === 'garden') {
+        this.setLocal(gx, groundH, gz, f.type === 'snow' ? B.SNOW : (c.surf === B.SAND ? c.surf : B.GRASS));
+        if (blx === (avail >> 1) && blz === (avail >> 1)) this.drawTree(gx, groundH, gz, c.tree !== 'none' ? c.tree : 'oak');
+        return;
+      }
+      const hSize = hash2(px, pz, f.fseed ^ 0x9002);
+      const bsz = kind === 'market' ? 5 : (6 + (hSize * Math.max(1, avail - 6) | 0));
+      const offset = Math.max(0, (avail - bsz) >> 1);
+      if (blx < offset || blx >= offset + bsz || blz < offset || blz >= offset + bsz) {
+        this.setLocal(gx, groundH, gz, pal.floor); // プロット内・建物の周りの余白
+        return;
+      }
+      const bfx0 = offset, bfx1 = offset + bsz - 1, bfz0 = offset, bfz1 = offset + bsz - 1;
+      const perim = blx === bfx0 || blx === bfx1 || blz === bfz0 || blz === bfz1;
+      const doorSide = hash2(px, pz, f.fseed ^ 0x9003) < 0.5 ? 'x' : 'z';
+      const doorPos = Math.floor((bfx0 + bfx1) / 2);
+      const isDoor = perim && ((doorSide === 'x' && blz === bfz0 && blx === doorPos) || (doorSide === 'z' && blx === bfx0 && blz === doorPos));
+      if (kind === 'market') {
+        const wh = 2;
+        const openSide = perim && ((doorSide === 'x' && blz === bfz1) || (doorSide === 'z' && blx === bfx1));
+        for (let y = groundH + 1; y <= groundH + wh; y++)
+          this.setLocal(gx, y, gz, (perim && !openSide) ? pal.wallAlt : B.AIR);
+        if (blx === bfx0 + (bsz >> 1) && blz === bfz0 + (bsz >> 1)) this.setLocal(gx, groundH + 1, gz, B.HAY_BALE);
+        if (perim) this.setLocal(gx, groundH + wh + 1, gz, pal.roof);
+        return;
+      }
+      // 住宅
+      const wallH = pal.wallHeight[0] + (hash2(px, pz, f.fseed ^ 0x9004) * (pal.wallHeight[1] - pal.wallHeight[0]) | 0);
+      if (perim) {
+        const midSpan = (blx === doorPos && (blz === bfz0 || blz === bfz1)) || (blz === doorPos && (blx === bfx0 || blx === bfx1));
+        for (let y = groundH + 1; y <= groundH + wallH; y++) {
+          if (isDoor && y <= groundH + 2) { this.setLocal(gx, y, gz, B.AIR); continue; }
+          const isWindowRow = y === groundH + Math.max(2, wallH - 2);
+          const mat = hash3(gx, y, gz, f.fseed) < 0.22 ? pal.wallAlt : pal.wall;
+          this.setLocal(gx, y, gz, (isWindowRow && midSpan && !isDoor) ? B.GLASS : mat);
+        }
+      } else {
+        for (let y = groundH + 1; y <= groundH + wallH; y++) this.setLocal(gx, y, gz, B.AIR);
+      }
+      // 段々ピラミッドの屋根
+      const distToEdge = Math.min(blx - bfx0, bfx1 - blx, blz - bfz0, bfz1 - blz);
+      const maxLayer = Math.min(3, bsz >> 1);
+      if (distToEdge <= maxLayer) this.setLocal(gx, groundH + wallH + 1 + distToEdge, gz, pal.roof);
     });
   }
 
