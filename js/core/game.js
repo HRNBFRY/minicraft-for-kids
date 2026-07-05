@@ -9,6 +9,7 @@ import { Inventory } from './inventory.js';
 import { SaveManager } from './save.js';
 import { Weather } from './weather.js';
 import { DayNight } from './daynight.js';
+import { SkyFX } from './skyfx.js';
 import { EventScheduler } from './events.js';
 import { SoundManager } from './sound.js';
 
@@ -110,6 +111,7 @@ export class Game {
     this.saveMgr = new SaveManager(this);
     this.weather = new Weather(this.scene, world.weather);
     this.dayNight = new DayNight(world.dayNightCycle);
+    this.skyfx = new SkyFX(this.scene);
     this.events = new EventScheduler(this.scene, world.specialEvents);
 
     const saved = this.saveMgr.load();
@@ -882,6 +884,16 @@ export class Game {
       this.sun.position.set(pp.x + 70, pp.y + 100, pp.z + 40);
     }
     this.sun.target.position.set(pp.x, pp.y, pp.z);
+
+    // 虹・オーロラ（Phase2残り）: オーバーワールドのみ。既存ワールドは gen 無しなのでオーロラは常に非表示
+    this.skyfx.update(dt, {
+      overworld: this.dim === DIM.OVER,
+      gen: this.world.gen,
+      playerPos: pp,
+      isNight: this.dayNight.isNight(),
+      weatherEnabled: this.weather.enabled,
+      sunPos: this.sun.position
+    });
 
     this.renderer.render(this.scene, this.camera);
 
