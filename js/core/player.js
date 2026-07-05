@@ -43,6 +43,9 @@ export class Player {
   }
   // ctl: {f, s, jump, down} キーボードとゲームパッドを統合した操作値
   update(dt, ctl) {
+    const wasOnGround = this.onGround;
+    this.justJumped = false;
+    this.justLanded = false;
     const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const sx = Math.cos(this.yaw), sz = -Math.sin(this.yaw);
     let mx = fx * ctl.f + sx * ctl.s, mz = fz * ctl.f + sz * ctl.s;
@@ -67,12 +70,14 @@ export class Player {
     } else {
       this.vel.y -= CFG.GRAVITY * dt;
       if (this.vel.y < -40) this.vel.y = -40;
-      if (ctl.jump && this.onGround) this.vel.y = 8.6;
+      if (ctl.jump && this.onGround) { this.vel.y = 8.6; this.justJumped = true; }
     }
 
     this.onGround = false;
     this.pos.x += this.vel.x * dt; this.resolve(0);
+    const fallVel = this.vel.y;
     this.pos.y += this.vel.y * dt; this.resolve(1);
+    if (!wasOnGround && this.onGround && fallVel < -3) { this.justLanded = true; this.landSpeed = fallVel; }
     this.pos.z += this.vel.z * dt; this.resolve(2);
 
     this.pos.x = Math.max(0.31, Math.min(CFG.WORLD_SIZE - 0.31, this.pos.x));

@@ -10,6 +10,7 @@ import { SaveManager } from './save.js';
 import { Weather } from './weather.js';
 import { DayNight } from './daynight.js';
 import { EventScheduler } from './events.js';
+import { SoundManager } from './sound.js';
 
 /* ---------------- Game: レンダラ・ループ・次元・イベント統括 ----------------
  * モジュール（ドラゴン等）はここに直接書き込まず、registerHook / registerItemDef /
@@ -27,6 +28,10 @@ export class Game {
     this.gpBreakT = 0;
     this.gpShotLatch = false;
     this.mousePlaceHeld = false;
+    this.sound = new SoundManager();
+    this._holdPlaceLastT = 0;
+    this._holdPlaceLastPos = null;
+    this._stepAcc = 0;
     this.fps = 0;
     this.frames = 0;
     this.fpsT = performance.now();
@@ -306,21 +311,24 @@ export class Game {
   bindEvents() {
     const canvas = this.renderer.domElement;
     this.hintEl.addEventListener('click', () => {
+      this.sound.resume();
       if (this.isTouch) this.startTouchPlay();
       else this.requestLock();
     });
     canvas.addEventListener('click', () => {
+      this.sound.resume();
       if (this.inventory.open || this.isTouch) return;
       this.requestLock();
     });
     this.btnMenuOpen.addEventListener('click', () => {
+      this.sound.playClick();
       if (this.pauseOpen) this.closePauseMenu(); else this.openPauseMenu();
     });
-    this.btnResume.addEventListener('click', () => this.closePauseMenu());
-    this.btnRenderDist.addEventListener('click', () => this.cycleRenderDist());
-    this.btnShadowToggle.addEventListener('click', () => { this.toggleShadows(); this.updatePauseMenuUI(); });
-    this.btnViewToggle.addEventListener('click', () => this.toggleView());
-    this.btnHome.addEventListener('click', () => this.goToTitle());
+    this.btnResume.addEventListener('click', () => { this.sound.playClick(); this.closePauseMenu(); });
+    this.btnRenderDist.addEventListener('click', () => { this.sound.playClick(); this.cycleRenderDist(); });
+    this.btnShadowToggle.addEventListener('click', () => { this.sound.playClick(); this.toggleShadows(); this.updatePauseMenuUI(); });
+    this.btnViewToggle.addEventListener('click', () => { this.sound.playClick(); this.toggleView(); });
+    this.btnHome.addEventListener('click', () => { this.sound.playClick(); this.goToTitle(); });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;
       if (!this.locked) this.mousePlaceHeld = false;
@@ -334,7 +342,13 @@ export class Game {
     document.addEventListener('mousedown', e => {
       if (!this.locked || this.inventory.open) return;
       if (e.button === 0) this.doBreak();
-      else if (e.button === 2) { this.mousePlaceHeld = true; this.doPlace(); }
+      else if (e.button === 2) {
+        this.mousePlaceHeld = true;
+        if (this.doPlace()) {
+          this._holdPlaceLastT = performance.now();
+          this._holdPlaceLastPos = { x: this.player.pos.x, z: this.player.pos.z };
+        }
+      }
     });
     document.addEventListener('mouseup', e => {
       if (e.button === 2) this.mousePlaceHeld = false;
@@ -364,6 +378,7 @@ export class Game {
   }
   startTouchPlay() {
     if (!this.touch) return;
+    this.sound.resume();
     this.touch.start();
     this.syncOverlays();
   }
@@ -525,9 +540,9 @@ export class Game {
     if (g.held(7)) {
       if (now >= this.gpBreakT) { this.gpBreakT = now + 250; this.doBreak(); }
     } else this.gpBreakT = 0;
-    // 設置(ZL)は移動しながらのブリッジ設置で隙間ができないよう、時間間隔ではなく
-    // 毎フレーム判定する（doPlace() 側で設置済み座標は自動的に無視されるため無駄撃ちにならない）。
-    if (g.held(6)) this.doPlace();
+    // 設置(ZL)は移動しながらのブリッジ設置で隙間ができないよう毎フレーム判定するが、
+    // 実際の設置は continuousPlace() 内で時間間隔・移動距離により間引かれる。
+    if (g.held(6)) this.continuousPlace(now);
     if (g.held(4) && g.held(5)) {
       if (!this.gpShotLatch) { this.takeScreenshot(); this.gpShotLatch = true; }
     } else this.gpShotLatch = false;
@@ -573,31 +588,70 @@ export class Game {
     if (hitOk) {
       const h = this._hit;
       const id = this.world.getBlock(h.x, h.y, h.z);
-      if (BLOCK_DEFS[id].breakable) this.world.setBlock(h.x, h.y, h.z, B.AIR);
+      if (BLOCK_DEFS[id].breakable) {
+        this.world.setBlock(h.x, h.y, h.z, B.AIR);
+        this.sound.playBreak();
+      }
     }
   }
 
-  // 設置 or アイテム使用
+  // 設置 or アイテム使用。実際に設置できた場合は true を返す（連続設置の間引き判定に使う）。
   doPlace() {
-    if (!this.playing()) return;
+    if (!this.playing()) return false;
     this.camera.getWorldDirection(this._dir);
-    if (!this.world.raycast(this.aimOrigin(), this._dir, CFG.REACH, this._hit)) return;
+    if (!this.world.raycast(this.aimOrigin(), this._dir, CFG.REACH, this._hit)) return false;
     const h = this._hit;
     const tid = this.world.getBlock(h.x, h.y, h.z);
     const sneak = this.input.keys.has('ShiftLeft') || this.input.keys.has('ShiftRight');
     if (tid === B.CTABLE && !sneak) {
       if (this.featureInventory) this.inventory.setOpen(true);
-      return;
+      return false;
     }
     const entry = this.inventory.current;
-    if (typeof entry === 'string') { this.useItem(entry, h, tid); return; }
+    if (typeof entry === 'string') { this.useItem(entry, h, tid); return false; }
     const px = h.x + h.nx, py = h.y + h.ny, pz = h.z + h.nz;
     if (px < 0 || pz < 0 || px >= CFG.WORLD_SIZE || pz >= CFG.WORLD_SIZE ||
-        py < 0 || py >= CFG.HEIGHT) return;
+        py < 0 || py >= CFG.HEIGHT) return false;
     const cur = this.world.getBlock(px, py, pz);
-    if (cur !== B.AIR && !BLOCK_DEFS[cur].liquid) return;
-    if (BLOCK_DEFS[entry].solid && this.player.intersectsBlock(px, py, pz)) return;
+    if (cur !== B.AIR && !BLOCK_DEFS[cur].liquid) return false;
+    if (BLOCK_DEFS[entry].solid && this.player.intersectsBlock(px, py, pz)) return false;
     this.world.setBlock(px, py, pz, entry);
+    this.sound.playPlace();
+    return true;
+  }
+
+  // 右クリック/タッチ/パッドの「設置ボタン長押し」用。移動しながらのブリッジ設置で
+  // 隙間ができないよう毎フレーム判定はするが、実際の設置は時間間隔と移動距離の
+  // 両方で間引き、連続しすぎず・かつ滑らかに設置されるようにする。
+  // - HOLD_INTERVAL: 設置の最短間隔（頻度の調整）
+  // - HOLD_MIN_DIST: 前回設置地点からこれだけ移動するまで次を設置しない（距離の調整）
+  continuousPlace(now) {
+    const HOLD_INTERVAL = 80;   // ms
+    const HOLD_MIN_DIST = 0.45; // ブロック
+    if (now - this._holdPlaceLastT < HOLD_INTERVAL) return;
+    if (this._holdPlaceLastPos) {
+      const dx = this.player.pos.x - this._holdPlaceLastPos.x;
+      const dz = this.player.pos.z - this._holdPlaceLastPos.z;
+      if (dx * dx + dz * dz < HOLD_MIN_DIST * HOLD_MIN_DIST) return;
+    }
+    if (this.doPlace()) {
+      this._holdPlaceLastT = now;
+      this._holdPlaceLastPos = { x: this.player.pos.x, z: this.player.pos.z };
+    }
+  }
+
+  // 地上を移動している間、一定距離ごとに足音を再生する。
+  updateFootsteps(dt) {
+    const p = this.player;
+    if (!p.onGround || p.flying) { this._stepAcc = 0; return; }
+    const speed = Math.hypot(p.vel.x, p.vel.z);
+    if (speed < 1.0) { this._stepAcc = 0; return; }
+    this._stepAcc += speed * dt;
+    const STEP_DIST = 2.1; // ブロック: この距離を歩くごとに1回再生
+    if (this._stepAcc >= STEP_DIST) {
+      this._stepAcc = 0;
+      this.sound.playFootstep();
+    }
   }
 
   useItem(key, h, tid) {
@@ -783,10 +837,14 @@ export class Game {
         this.player.pitch = Math.max(-1.55, Math.min(1.55, this.player.pitch - d.y * 0.0035));
       }
       // マウス右クリック長押し・タッチの設置ボタン長押しは毎フレーム判定し、
-      // 移動しながらのブリッジ設置で隙間ができないようにする（doPlace()は設置済みマスを自動で無視）。
-      if (this.mousePlaceHeld) this.doPlace();
-      if (this.touch && this.touch.active && this.touch.placeHeld) this.doPlace();
+      // 移動しながらのブリッジ設置で隙間ができないようにする。
+      // 実際の設置頻度・距離は continuousPlace() 側で間引かれ、連続しすぎないようにしている。
+      if (this.mousePlaceHeld) this.continuousPlace(now);
+      if (this.touch && this.touch.active && this.touch.placeHeld) this.continuousPlace(now);
       this.player.update(dt, this.ctl);
+      this.updateFootsteps(dt);
+      if (this.player.justJumped) this.sound.playJump();
+      if (this.player.justLanded) this.sound.playLand();
       this.checkPortalStep(now);
     }
 
