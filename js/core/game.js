@@ -25,8 +25,8 @@ export class Game {
     this.gpStarted = false;
     this.lastSpace = 0;
     this.gpBreakT = 0;
-    this.gpPlaceT = 0;
     this.gpShotLatch = false;
+    this.mousePlaceHeld = false;
     this.fps = 0;
     this.frames = 0;
     this.fpsT = performance.now();
@@ -51,6 +51,7 @@ export class Game {
     this.ctl = { f: 0, s: 0, jump: false, down: false };
     this._dir = new THREE.Vector3();
     this._hit = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0 };
+    this._eye = { x: 0, y: 0, z: 0 }; // 破壊/設置の判定は三人称視点でもプレイヤーの目の位置を基準にする
 
     // モジュール接続点
     this.itemDefs = Object.assign({}, CORE_ITEM_DEFS);
@@ -81,6 +82,8 @@ export class Game {
     this.player = new Player(this.worlds[DIM.OVER]);
     this.input = new Input();
     this.pad = new GamepadInput();
+    this.viewMode = 0; // 0:一人称 1:三人称（自分の姿を確認できる視点）
+    this.buildAvatar(profile);
 
     // モジュールのインストール（アイテム登録・フック登録）。Inventory構築の前に行う。
     for (const m of moduleDefs) {
@@ -119,6 +122,7 @@ export class Game {
     this.btnResume = document.getElementById('btnResume');
     this.btnRenderDist = document.getElementById('btnRenderDist');
     this.btnShadowToggle = document.getElementById('btnShadowToggle');
+    this.btnViewToggle = document.getElementById('btnViewToggle');
     this.btnHome = document.getElementById('btnHome');
     this.updateCurBlock();
     this.applyProfileUI();
@@ -219,6 +223,64 @@ export class Game {
     this.scene.add(sun.target);
   }
 
+  // 三人称視点用の簡易プレイヤーアバター（頭・胴・腕・脚のブロック体）。
+  // 一人称時は非表示。profile.skin.color を体の色として使う。
+  buildAvatar(profile) {
+    const skinHex = (profile.skin && profile.skin.color) || '#4fa8ff';
+    const bodyMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(skinHex) });
+    const headMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(0xe0a878) });
+    const group = new THREE.Group();
+    const parts = [
+      new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), headMat),
+      new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.3), bodyMat),
+      new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.6, 0.18), bodyMat),
+      new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.6, 0.18), bodyMat),
+      new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.75, 0.2), bodyMat),
+      new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.75, 0.2), bodyMat)
+    ];
+    parts[0].position.set(0, 1.6, 0);   // 頭
+    parts[1].position.set(0, 1.05, 0);  // 胴
+    parts[2].position.set(-0.34, 1.05, 0); // 左腕
+    parts[3].position.set(0.34, 1.05, 0);  // 右腕
+    parts[4].position.set(-0.13, 0.375, 0); // 左脚
+    parts[5].position.set(0.13, 0.375, 0);  // 右脚
+    for (const m of parts) { m.castShadow = true; m.receiveShadow = true; group.add(m); }
+    group.visible = false;
+    this.scene.add(group);
+    this.avatarGroup = group;
+  }
+
+  // 一人称 <-> 三人称（自分の姿が見える視点）の切り替え。ボタンは Switch版の配置に合わせ、
+  // ゲームパッドは＋（ポーズ）と対になる－（マイナス）ボタンに割り当てる（このゲーム独自の割当）。
+  toggleView() {
+    this.viewMode = this.viewMode === 0 ? 1 : 0;
+    if (this.avatarGroup) this.avatarGroup.visible = this.viewMode === 1;
+    this.showMsg('視点: ' + (this.viewMode === 1 ? '三人称' : '一人称'));
+    this.updatePauseMenuUI();
+  }
+
+  // プレイヤーの一人称カメラ位置を基準に、三人称なら後方へオフセットする。
+  // 壁抜け防止のため、後方へのレイキャストでカメラ距離をクランプする。
+  updateCameraView() {
+    const p = this.player;
+    p.updateCamera(this.camera);
+    if (this.viewMode !== 1) return;
+    this.camera.getWorldDirection(this._dir);
+    const eyeX = p.pos.x, eyeY = p.pos.y + p.EYE, eyeZ = p.pos.z;
+    let dist = 4.5;
+    const bx = -this._dir.x, by = -this._dir.y, bz = -this._dir.z;
+    if (this.world.raycast({ x: eyeX, y: eyeY, z: eyeZ }, { x: bx, y: by, z: bz }, dist, this._hit)) {
+      const h = this._hit;
+      const hitDist = Math.hypot(h.x + 0.5 - eyeX, h.y + 0.5 - eyeY, h.z + 0.5 - eyeZ);
+      dist = Math.max(0.6, hitDist - 0.5);
+    }
+    this.camera.position.set(eyeX + bx * dist, eyeY + by * dist, eyeZ + bz * dist);
+    if (this.avatarGroup) {
+      this.avatarGroup.position.set(p.pos.x, p.pos.y, p.pos.z);
+      this.avatarGroup.rotation.y = p.yaw;
+    }
+  }
+
   // 次元切替（グループ差し替え＋空気感の変更）。切替のたびに onEnterDim フックを呼ぶ。
   setDim(d) {
     if (this.dimInit && this.dim === d) return;
@@ -257,9 +319,11 @@ export class Game {
     this.btnResume.addEventListener('click', () => this.closePauseMenu());
     this.btnRenderDist.addEventListener('click', () => this.cycleRenderDist());
     this.btnShadowToggle.addEventListener('click', () => { this.toggleShadows(); this.updatePauseMenuUI(); });
+    this.btnViewToggle.addEventListener('click', () => this.toggleView());
     this.btnHome.addEventListener('click', () => this.goToTitle());
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;
+      if (!this.locked) this.mousePlaceHeld = false;
       this.syncOverlays();
     });
     document.addEventListener('mousemove', e => {
@@ -270,7 +334,10 @@ export class Game {
     document.addEventListener('mousedown', e => {
       if (!this.locked || this.inventory.open) return;
       if (e.button === 0) this.doBreak();
-      else if (e.button === 2) this.doPlace();
+      else if (e.button === 2) { this.mousePlaceHeld = true; this.doPlace(); }
+    });
+    document.addEventListener('mouseup', e => {
+      if (e.button === 2) this.mousePlaceHeld = false;
     });
     document.addEventListener('contextmenu', e => e.preventDefault());
     document.addEventListener('wheel', e => {
@@ -333,6 +400,7 @@ export class Game {
     if (!this.btnRenderDist) return;
     this.btnRenderDist.textContent = '描画範囲: ' + this.renderLevels[this.renderLevelIndex].label;
     this.btnShadowToggle.textContent = '影MOD: ' + (this.shadows ? 'ON' : 'OFF');
+    this.btnViewToggle.textContent = '視点: ' + (this.viewMode === 1 ? '三人称' : '一人称');
   }
   goToTitle() {
     if (!confirm('トップ画面に戻りますか？（自動セーブ済み）')) return;
@@ -361,6 +429,8 @@ export class Game {
       this.toggleInventory();
     } else if (code === 'KeyF') {
       this.toggleShadows();
+    } else if (code === 'F5') {
+      this.toggleView();
     } else if (code === 'Escape') {
       if (this.inventory.open) this.inventory.setOpen(false);
       else if (this.pauseOpen) this.closePauseMenu();
@@ -414,8 +484,8 @@ export class Game {
 
   // ゲームパッドのボタン処理（Switch版マイクラ(Bedrock)と同じボタン配置）
   // B:ジャンプ/飛行上昇  A:しゃがみ/飛行下降  X:インベントリ  Y:クラフト（インベントリと共用）
-  // L/R:アイテム切替  ZL:設置/使用  ZR:攻撃/破壊  L+R:スクリーンショット
-  // 左スティック押込み:影MOD切替（このゲーム独自機能）  ＋:ゲームメニュー（ポーズ）
+  // L/R:アイテム切替  ZL:設置/使用（長押しで連続設置）  ZR:攻撃/破壊  L+R:スクリーンショット
+  // 左スティック押込み:影MOD切替（このゲーム独自機能）  －:視点切替（このゲーム独自機能）  ＋:ゲームメニュー（ポーズ）
   handleGamepad(now) {
     if (!this.gamepadEnabled) return;
     const g = this.pad;
@@ -433,6 +503,7 @@ export class Game {
     }
     if (g.pressed(3) || g.pressed(2)) this.toggleInventory(); // X:インベントリ / Y:クラフト
     if (g.pressed(10)) this.toggleShadows();       // 左スティック押込み: 影MOD（独自機能）
+    if (g.pressed(8)) this.toggleView();           // －: 視点切替・一人称/三人称（このゲーム独自機能）
     if (this.inventory.open) {
       if (g.pressed(14)) this.inventory.move(-1);
       if (g.pressed(15)) this.inventory.move(1);
@@ -454,9 +525,9 @@ export class Game {
     if (g.held(7)) {
       if (now >= this.gpBreakT) { this.gpBreakT = now + 250; this.doBreak(); }
     } else this.gpBreakT = 0;
-    if (g.held(6)) {
-      if (now >= this.gpPlaceT) { this.gpPlaceT = now + 250; this.doPlace(); }
-    } else this.gpPlaceT = 0;
+    // 設置(ZL)は移動しながらのブリッジ設置で隙間ができないよう、時間間隔ではなく
+    // 毎フレーム判定する（doPlace() 側で設置済み座標は自動的に無視されるため無駄撃ちにならない）。
+    if (g.held(6)) this.doPlace();
     if (g.held(4) && g.held(5)) {
       if (!this.gpShotLatch) { this.takeScreenshot(); this.gpShotLatch = true; }
     } else this.gpShotLatch = false;
@@ -473,21 +544,30 @@ export class Game {
     } catch (e) { /* no-op */ }
   }
 
+  // 破壊・設置のレイキャスト開始位置（プレイヤーの目の位置）。
+  // 三人称視点ではカメラが後方にあるため、視線方向のみカメラから取り、原点は常にプレイヤーの目にする。
+  aimOrigin() {
+    const p = this.player;
+    this._eye.x = p.pos.x; this._eye.y = p.pos.y + p.EYE; this._eye.z = p.pos.z;
+    return this._eye;
+  }
+
   // 破壊 or モジュール提供のエンティティ攻撃
   doBreak() {
     if (!this.playing()) return;
     this.camera.getWorldDirection(this._dir);
-    const cands = this.collectAttackCandidates(this.camera.position, this._dir, 100);
+    const eye = this.aimOrigin();
+    const cands = this.collectAttackCandidates(eye, this._dir, 100);
     let best = null, bestT = 1e9;
     for (const c of cands) if (c.dist < bestT) { best = c; bestT = c.dist; }
-    const hitOk = this.world.raycast(this.camera.position, this._dir, CFG.REACH, this._hit);
+    const hitOk = this.world.raycast(eye, this._dir, CFG.REACH, this._hit);
     let blockDist = 1e9;
     if (hitOk) {
       const h = this._hit;
       blockDist = Math.hypot(
-        h.x + 0.5 - this.camera.position.x,
-        h.y + 0.5 - this.camera.position.y,
-        h.z + 0.5 - this.camera.position.z);
+        h.x + 0.5 - eye.x,
+        h.y + 0.5 - eye.y,
+        h.z + 0.5 - eye.z);
     }
     if (best && bestT < blockDist) { best.onHit(); return; }
     if (hitOk) {
@@ -501,7 +581,7 @@ export class Game {
   doPlace() {
     if (!this.playing()) return;
     this.camera.getWorldDirection(this._dir);
-    if (!this.world.raycast(this.camera.position, this._dir, CFG.REACH, this._hit)) return;
+    if (!this.world.raycast(this.aimOrigin(), this._dir, CFG.REACH, this._hit)) return;
     const h = this._hit;
     const tid = this.world.getBlock(h.x, h.y, h.z);
     const sneak = this.input.keys.has('ShiftLeft') || this.input.keys.has('ShiftRight');
@@ -702,6 +782,10 @@ export class Game {
         this.player.yaw -= d.x * 0.0035;
         this.player.pitch = Math.max(-1.55, Math.min(1.55, this.player.pitch - d.y * 0.0035));
       }
+      // マウス右クリック長押し・タッチの設置ボタン長押しは毎フレーム判定し、
+      // 移動しながらのブリッジ設置で隙間ができないようにする（doPlace()は設置済みマスを自動で無視）。
+      if (this.mousePlaceHeld) this.doPlace();
+      if (this.touch && this.touch.active && this.touch.placeHeld) this.doPlace();
       this.player.update(dt, this.ctl);
       this.checkPortalStep(now);
     }
@@ -719,7 +803,7 @@ export class Game {
     }
     this.events.update(dt, this.player.pos);
 
-    this.player.updateCamera(this.camera);
+    this.updateCameraView();
 
     const pp = this.player.pos;
     if (this.dayNight.enabled) {

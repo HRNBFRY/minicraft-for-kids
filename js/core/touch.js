@@ -1,6 +1,8 @@
 /* ---------------- TouchControls: iPad等のタッチ操作（Proコン不要） ----------------
  * 左下: 仮想スティックで移動　/　画面右側ドラッグ: 視点操作
- * 右下ボタン: ジャンプ（ダブルタップで飛行）・しゃがみ降下・破壊・設置・インベントリ・ブロック切替
+ * 右下ボタン: 上段に設置・インベントリ・破壊、下段にブロック切替・ジャンプ、
+ * 最下段にしゃがみ降下を配置（設置・破壊をインベントリの隣に置き親指で押しやすくする）。
+ * ジャンプはダブルタップで飛行切替。設置は長押しで連続設置（移動しながらのブリッジ設置向け）。
  */
 export class TouchControls {
   constructor(game) {
@@ -10,6 +12,7 @@ export class TouchControls {
     this.moveS = 0;
     this.jumpHeld = false;
     this.downHeld = false;
+    this.placeHeld = false;
     this._lookDX = 0;
     this._lookDY = 0;
     this._joyTouchId = null;
@@ -27,12 +30,12 @@ export class TouchControls {
       '<div id="tcLookZone"></div>' +
       '<div id="tcJoyZone"><div id="tcJoyBase"><div id="tcJoyStick"></div></div></div>' +
       '<div id="tcButtons">' +
-        '<button id="tcPrev" class="tcBtn" type="button">◀</button>' +
-        '<button id="tcInv" class="tcBtn" type="button">📦</button>' +
-        '<button id="tcNext" class="tcBtn" type="button">▶</button>' +
         '<button id="tcPlace" class="tcBtn" type="button">設置</button>' +
-        '<button id="tcJump" class="tcBtn tcBig" type="button">▲</button>' +
+        '<button id="tcInv" class="tcBtn" type="button">📦</button>' +
         '<button id="tcBreak" class="tcBtn" type="button">破壊</button>' +
+        '<button id="tcPrev" class="tcBtn" type="button">◀</button>' +
+        '<button id="tcJump" class="tcBtn tcBig" type="button">▲</button>' +
+        '<button id="tcNext" class="tcBtn" type="button">▶</button>' +
         '<div></div><button id="tcDown" class="tcBtn" type="button">▼</button><div></div>' +
       '</div>';
     document.body.appendChild(root);
@@ -141,11 +144,15 @@ export class TouchControls {
     hold(this.root.querySelector('#tcDown'),
       () => { this.downHeld = true; },
       () => { this.downHeld = false; });
+    // 設置は長押しで連続設置（移動しながらのブリッジ設置で隙間ができないように）。
+    // 実際の連続呼び出しは Game.tick() 側で毎フレーム doPlace() を呼ぶ。
+    hold(this.root.querySelector('#tcPlace'),
+      () => { this.placeHeld = true; g.doPlace(); },
+      () => { this.placeHeld = false; });
     const tap = (id, fn) => {
       this.root.querySelector(id).addEventListener('touchstart', e => { e.preventDefault(); fn(); }, { passive: false });
     };
     tap('#tcBreak', () => g.doBreak());
-    tap('#tcPlace', () => g.doPlace());
     tap('#tcInv', () => g.toggleInventory());
     tap('#tcPrev', () => { if (g.playing()) g.inventory.cycle(-1); });
     tap('#tcNext', () => { if (g.playing()) g.inventory.cycle(1); });
@@ -161,7 +168,7 @@ export class TouchControls {
   stop() {
     this.active = false; this.hide();
     this.moveF = 0; this.moveS = 0;
-    this.jumpHeld = false; this.downHeld = false;
+    this.jumpHeld = false; this.downHeld = false; this.placeHeld = false;
     this._joyTouchId = null; this._lookTouchId = null;
   }
 }

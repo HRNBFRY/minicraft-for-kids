@@ -4,7 +4,7 @@ export class Input {
     this.keys = new Set();
     this.onDown = null;
     window.addEventListener('keydown', e => {
-      if (e.code === 'Space') e.preventDefault();
+      if (e.code === 'Space' || e.code === 'F5') e.preventDefault();
       const first = !e.repeat && !this.keys.has(e.code);
       this.keys.add(e.code);
       if (first && this.onDown) this.onDown(e.code);
