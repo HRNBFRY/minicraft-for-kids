@@ -15,7 +15,7 @@
  * バイオーム: 35種類（気候×標高×稀少マスクで決定）。色は気候から連続的に
  *   補間するため、境界は自然につながる。
  * ============================================================ */
-import { Noise, derivedSeed } from './noise.js';
+import { Noise, derivedSeed, hash2 } from './noise.js';
 import { B } from './constants.js';
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -94,8 +94,68 @@ export class OpenWorldGen {
     this.nCaveA = new Noise(derivedSeed(seed, 0x8888));  // Cave
     this.nCaveB = new Noise(derivedSeed(seed, 0x9999));
     this.nSpec  = new Noise(derivedSeed(seed, 0xaaaa));  // 稀少バイオームマスク
+    this.nCanyon= new Noise(derivedSeed(seed, 0xbbbb));  // 峡谷
     this._cache = new Map();
     this._cap = 220000;
+    // ランドマーク（Phase2）: セル毎に必ず1つ配置し、500〜1000ブロックの空白を作らない
+    this.LM = p.landmarkCell != null ? p.landmarkCell : 176; // セル辺長
+    this.LM_MAXR = 40;   // 構造物の最大水平半径（近傍セル探索範囲）
+    this.UG = 148;       // 地下構造グリッド
+  }
+
+  // 峡谷の強さ 0..1（1に近いほど谷底）。陸の高台にだけ深い渓谷を刻む。
+  canyonStrength(x, z) {
+    const [wx, wz] = this.nCanyon.warp(x * 0.0011, z * 0.0011, 0.55, 0.0035);
+    const v = Math.abs(this.nCanyon.fbm(wx + 300, wz - 300, 3));
+    return smooth(0.032, 0.0, v);
+  }
+
+  // ランドマーク記述子: セル(cx,cz)に必ず1つ。位置と種類は決定的。
+  landmarkCell(cx, cz) {
+    const s = this.seed;
+    const LM = this.LM, m = 26; // セル内の余白
+    const ax = cx * LM + m + (hash2(cx, cz, s ^ 0x1a11) * (LM - m * 2) | 0);
+    const az = cz * LM + m + (hash2(cx, cz, s ^ 0x1a22) * (LM - m * 2) | 0);
+    const col = this.column(ax, az);
+    const r = hash2(cx, cz, s ^ 0x1a33);
+    const type = this._landmarkType(col, r);
+    return { type, ax, az, h: col.h, biome: col.biome, r, fseed: (hash2(cx, cz, s ^ 0x1a44) * 1e9) | 0 };
+  }
+  _landmarkType(col, r) {
+    const { h, biome } = col, sea = this.sea;
+    if (h < sea - 1) return r < 0.55 ? 'island' : 'float';   // 海 → 離島 or 浮島
+    switch (biome) {
+      case OB.VOLCANO: return 'volcano';
+      case OB.MUSHROOM: return 'mushroom';
+      case OB.HOT_SPRING: return 'hot_spring';
+      case OB.DESERT: case OB.BADLANDS:
+        return r < 0.45 ? 'arch' : (r < 0.75 ? 'tower' : 'giant_tree');
+      case OB.SAVANNA: return r < 0.4 ? 'arch' : (r < 0.7 ? 'giant_tree' : 'tower');
+      case OB.MOUNTAINS: case OB.ROCKY_PEAKS: case OB.SNOWY_PEAKS:
+        return r < 0.45 ? 'arch' : (r < 0.8 ? 'waterfall' : 'tower');
+      case OB.SNOWY_PLAINS: case OB.GLACIER: case OB.FROZEN_OCEAN:
+        return r < 0.5 ? 'tower' : 'float';
+      case OB.JUNGLE: case OB.BAMBOO: return r < 0.6 ? 'giant_tree' : (r < 0.8 ? 'tower' : 'float');
+      case OB.SWAMP: case OB.MARSH: return r < 0.5 ? 'giant_mushroom_field' : 'tower';
+    }
+    // 温帯・森林・草原一般
+    if (h > sea + 26) return r < 0.5 ? 'waterfall' : (r < 0.8 ? 'arch' : 'tower');
+    return r < 0.42 ? 'giant_tree' : (r < 0.64 ? 'tower' : (r < 0.82 ? 'float' : 'arch'));
+  }
+
+  // 地下構造: グリッド確率で配置。地下湖 / 神殿 / 巨大空洞。
+  undergroundCell(cx, cz) {
+    const s = this.seed, UG = this.UG;
+    if (hash2(cx, cz, s ^ 0x2b01) >= 0.62) return null; // 62%で無し
+    const m = 20;
+    const ax = cx * UG + m + (hash2(cx, cz, s ^ 0x2b11) * (UG - m * 2) | 0);
+    const az = cz * UG + m + (hash2(cx, cz, s ^ 0x2b22) * (UG - m * 2) | 0);
+    const surfH = this.column(ax, az).h;
+    if (surfH < this.sea + 3) return null; // 陸のみ
+    const ay = 14 + (hash2(cx, cz, s ^ 0x2b33) * Math.max(4, surfH - 30) | 0);
+    const rr = hash2(cx, cz, s ^ 0x2b44);
+    const type = rr < 0.4 ? 'ug_lake' : (rr < 0.72 ? 'ug_cavern' : 'ug_temple');
+    return { type, ax, az, ay, surfH, fseed: (hash2(cx, cz, s ^ 0x2b55) * 1e9) | 0 };
   }
 
   // 気候（温度・湿度）。標高が高いほど寒くなる補正込み。返り値 [-1,1]

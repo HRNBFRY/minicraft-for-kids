@@ -11,7 +11,7 @@
 
 // デプロイ確認用のバージョン表示（タイトル画面に出す）。
 // 変更を commit するたびに、ここの日付・連番を更新すること。
-export const GAME_VERSION = '2026.07.05-2';
+export const GAME_VERSION = '2026.07.05-3';
 
 // 実行時に world.json の内容で上書きされる可変設定
 export const CFG = {

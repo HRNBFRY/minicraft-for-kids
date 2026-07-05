@@ -74,6 +74,12 @@ export class Chunk {
       const gx = x0 + lx, gz = z0 + lz, col = lx + (lz << 4);
       const c = gen.column(gx, gz);
       const h = c.h, land = h > sea;
+      // 峡谷: 高台で谷ノイズが強い列は上部を削って切り立った渓谷にする
+      let carveTop = -1;
+      if (land && h > sea + 10) {
+        const cs = gen.canyonStrength(gx, gz);
+        if (cs > 0.28) carveTop = h - Math.round(cs * Math.min(h - sea - 4, 24));
+      }
       for (let y = 0; y <= h; y++) {
         let id;
         if (y === 0) id = B.BEDROCK;
@@ -82,12 +88,14 @@ export class Chunk {
         else id = c.surf; // 地表
         // 洞窟: 陸の地下だけ空洞化（海底のスカスカ化を防ぐ）
         if (id !== B.BEDROCK && y < h && land && gen.caveAt(gx, y, gz)) id = B.AIR;
+        if (carveTop >= 1 && y > carveTop && y < h) id = B.AIR; // 峡谷の削り
         d[col + (y << 8)] = id;
       }
       for (let y = h + 1; y <= sea; y++) d[col + (y << 8)] = B.WATER; // 海抜以下を水で満たす
     }
     this.data = d;
     this.plantTreesOpen();
+    this.placeFeatures(); // 自然生成の巨大構造・ランドマーク（Phase2）
     this.applyEdits();
   }
   // オープンワールドの植生: 列ごとの biome/tree/density に従い木を配置
@@ -103,6 +111,7 @@ export class Chunk {
       if (r >= c.density * 0.12) continue; // density(0..0.9) を出現確率へ写像
       const h = c.h;
       if (h <= sea || h > CFG.HEIGHT - 16) continue;
+      if (h > sea + 10 && gen.canyonStrength(gx, gz) > 0.28) continue; // 峡谷で削れた列には植えない
       this.drawTree(gx, h, gz, c.tree);
     }
   }
@@ -170,6 +179,256 @@ export class Chunk {
     const th = 4 + (rnd(0x9) * 3 | 0);
     for (let y = h + 1; y <= h + th; y++) this.setLocal(gx, y, gz, B.WOOD);
     canopy(h + th - 1, 2, true); canopy(h + th, 2, true); canopy(h + th + 1, 1, false);
+  }
+
+  /* ========== Phase2: 自然生成の巨大構造・ランドマーク ==========
+   * 各セルは決定的に1つの地表ランドマークを持ち、500〜1000ブロックの空白を作らない。
+   * 各スタンプは「自分のチャンクに重なる範囲だけ」を書く（木・要塞と同じ分割描画方式）。*/
+  placeFeatures() {
+    const w = this.world, gen = w.gen;
+    const x0 = this.cx * 16, z0 = this.cz * 16;
+    const LM = gen.LM, R = gen.LM_MAXR;
+    const cx0 = Math.floor((x0 - R) / LM), cx1 = Math.floor((x0 + 15 + R) / LM);
+    const cz0 = Math.floor((z0 - R) / LM), cz1 = Math.floor((z0 + 15 + R) / LM);
+    for (let cz = cz0; cz <= cz1; cz++) for (let cx = cx0; cx <= cx1; cx++) {
+      if (cx < 0 || cz < 0) continue;
+      const f = gen.landmarkCell(cx, cz);
+      if (!this.bboxHits(f.ax, f.az, R)) continue;
+      this.stampLandmark(f);
+    }
+    const UG = gen.UG, UR = 22;
+    const ux0 = Math.floor((x0 - UR) / UG), ux1 = Math.floor((x0 + 15 + UR) / UG);
+    const uz0 = Math.floor((z0 - UR) / UG), uz1 = Math.floor((z0 + 15 + UR) / UG);
+    for (let uz = uz0; uz <= uz1; uz++) for (let ux = ux0; ux <= ux1; ux++) {
+      if (ux < 0 || uz < 0) continue;
+      const f = gen.undergroundCell(ux, uz);
+      if (f && this.bboxHits(f.ax, f.az, UR)) this.stampUnderground(f);
+    }
+  }
+  bboxHits(ax, az, R) {
+    const x0 = this.cx * 16, z0 = this.cz * 16;
+    return ax + R >= x0 && ax - R <= x0 + 15 && az + R >= z0 && az - R <= z0 + 15;
+  }
+  // このチャンクと [ax±R, az±R] の交差範囲を (gx,gz) で走査するヘルパ
+  _each(ax, az, R, fn) {
+    const x0 = this.cx * 16, z0 = this.cz * 16;
+    const gx0 = Math.max(x0, ax - R), gx1 = Math.min(x0 + 15, ax + R);
+    const gz0 = Math.max(z0, az - R), gz1 = Math.min(z0 + 15, az + R);
+    for (let gz = gz0; gz <= gz1; gz++) for (let gx = gx0; gx <= gx1; gx++) fn(gx, gz);
+  }
+  gh(gx, gz) { return this.world.gen.column(gx, gz).h; }
+
+  stampLandmark(f) {
+    switch (f.type) {
+      case 'volcano': return this.stampVolcano(f);
+      case 'giant_tree': return this.stampGiantTree(f);
+      case 'mushroom': case 'giant_mushroom_field': return this.stampGiantMushroom(f);
+      case 'float': return this.stampFloatingIsland(f);
+      case 'arch': return this.stampArch(f);
+      case 'tower': return this.stampTower(f);
+      case 'waterfall': return this.stampWaterfall(f);
+      case 'hot_spring': return this.stampHotSpring(f);
+      case 'island': return this.stampIsland(f);
+    }
+  }
+
+  stampVolcano(f) {
+    const gen = this.world.gen, ax = f.ax, az = f.az, base = f.h;
+    const R = 16 + (hash2(ax, az, f.fseed) * 10 | 0);
+    const peak = base + R + 6;
+    this._each(ax, az, R, (gx, gz) => {
+      const dx = gx - ax, dz = gz - az, d = Math.sqrt(dx * dx + dz * dz);
+      if (d > R) return;
+      const rimH = Math.round(peak - (d / R) * (peak - base));
+      const g = gen.column(gx, gz).h;
+      for (let y = Math.max(1, g); y <= rimH; y++)
+        this.setLocal(gx, y, gz, hash3(gx, y, gz, f.fseed) < 0.25 ? B.NETHERRACK : B.STONE);
+      if (d < R * 0.34) { // 火口＋溶岩
+        const cf = peak - 5;
+        for (let y = cf + 1; y <= rimH; y++) this.setLocal(gx, y, gz, B.AIR);
+        this.setLocal(gx, cf, gz, B.LAVA);
+      }
+    });
+  }
+
+  stampGiantTree(f) {
+    const ax = f.ax, az = f.az, base = f.h;
+    const th = 16 + (hash2(ax, az, f.fseed) * 10 | 0);
+    const cr = 5 + (hash2(ax, az, f.fseed ^ 0x9) * 3 | 0); // 樹冠半径
+    const cyTop = base + th, R = cr + 1;
+    this._each(ax, az, R, (gx, gz) => {
+      const inTrunk = (gx === ax || gx === ax + 1) && (gz === az || gz === az + 1);
+      if (inTrunk) for (let y = base + 1; y <= cyTop; y++) this.setLocal(gx, y, gz, B.WOOD);
+      const dx = gx - (ax + 0.5), dz = gz - (az + 0.5);
+      for (let y = cyTop - cr; y <= cyTop + cr - 1; y++) {
+        const dy = (y - cyTop) * 1.15;
+        if (dx * dx + dz * dz + dy * dy <= cr * cr) this.setLocalIfEmpty(gx, y, gz, B.LEAVES);
+      }
+    });
+  }
+
+  stampGiantMushroom(f) {
+    const ax = f.ax, az = f.az, base = f.h;
+    const th = 8 + (hash2(ax, az, f.fseed) * 6 | 0);
+    const cr = 4 + (hash2(ax, az, f.fseed ^ 0x3) * 3 | 0);
+    const capY = base + th, R = cr + 1;
+    this._each(ax, az, R, (gx, gz) => {
+      if (gx === ax && gz === az) for (let y = base + 1; y <= capY; y++) this.setLocal(gx, y, gz, B.WOOD);
+      const dx = gx - ax, dz = gz - az, d2 = dx * dx + dz * dz;
+      if (d2 <= cr * cr) { // 笠（かさ）
+        this.setLocalIfEmpty(gx, capY + 1, gz, B.LEAVES);
+        if (d2 >= (cr - 1) * (cr - 1)) this.setLocalIfEmpty(gx, capY, gz, B.LEAVES); // 笠の縁を垂らす
+      }
+    });
+  }
+
+  stampFloatingIsland(f) {
+    const ax = f.ax, az = f.az;
+    const rx = 7 + (hash2(ax, az, f.fseed) * 5 | 0);
+    let iy = Math.max(f.h + 28, this.world.terrain.sea + 42);
+    iy = Math.min(iy, CFG.HEIGHT - 14);
+    const R = rx + 1;
+    this._each(ax, az, R, (gx, gz) => {
+      const dx = gx - ax, dz = gz - az, dd = dx * dx + dz * dz;
+      const rr = rx * Math.sqrt(Math.max(0, 1 - dd / (rx * rx)));
+      if (dd > rx * rx) return;
+      const bottom = iy - Math.round(rr) - 1; // 下面はしずく状に尖らせる
+      for (let y = bottom; y <= iy; y++) {
+        const id = y === iy ? B.GRASS : (y >= iy - 2 ? B.DIRT : B.STONE);
+        this.setLocal(gx, y, gz, id);
+      }
+      if (dx === 0 && dz === 0) { // 中央に木
+        for (let y = iy + 1; y <= iy + 4; y++) this.setLocal(gx, y, gz, B.WOOD);
+        for (let ddx = -2; ddx <= 2; ddx++) for (let ddz = -2; ddz <= 2; ddz++)
+          this.setLocalIfEmpty(gx + ddx, iy + 4, gz + ddz, B.LEAVES);
+      }
+    });
+  }
+
+  stampArch(f) { // 天然橋（石のアーチ）
+    const ax = f.ax, az = f.az, base = f.h;
+    const horiz = hash2(ax, az, f.fseed) < 0.5;
+    const L = 14 + (hash2(ax, az, f.fseed ^ 0x5) * 10 | 0);
+    const H = 7 + (hash2(ax, az, f.fseed ^ 0x6) * 5 | 0);
+    const wdt = 1 + (hash2(ax, az, f.fseed ^ 0x7) * 2 | 0);
+    const R = Math.ceil(L / 2) + wdt + 1;
+    this._each(ax, az, R, (gx, gz) => {
+      const along = horiz ? gx - (ax - (L >> 1)) : gz - (az - (L >> 1));
+      const side = horiz ? gz - az : gx - ax;
+      if (along < 0 || along > L || Math.abs(side) > wdt) return;
+      const yTop = base + Math.round(H * Math.sin(Math.PI * along / L));
+      const g = this.gh(gx, gz);
+      for (let y = yTop - 1; y <= yTop + 1; y++) this.setLocal(gx, y, gz, hash3(gx, y, gz, f.fseed) < 0.3 ? B.MOSSY_STONE_BRICK : B.STONE);
+      if (along === 0 || along === L) for (let y = g; y < yTop - 1; y++) this.setLocal(gx, y, gz, B.STONE); // 脚
+    });
+  }
+
+  stampTower(f) { // 塔・遺跡（半壊の石レンガ塔）
+    const ax = f.ax, az = f.az, base = f.h;
+    const rad = 3 + (hash2(ax, az, f.fseed) * 2 | 0);
+    const th = 10 + (hash2(ax, az, f.fseed ^ 0x2) * 9 | 0);
+    const R = rad + 1;
+    this._each(ax, az, R, (gx, gz) => {
+      const dx = gx - ax, dz = gz - az, d = Math.sqrt(dx * dx + dz * dz);
+      if (d > rad + 0.3) return;
+      const wall = d >= rad - 0.75;
+      for (let y = base; y <= base + th; y++) {
+        if (wall) {
+          if (hash3(gx, y, gz, f.fseed) < 0.14) continue; // 崩れた欠け
+          if (y > base + th - 2 && hash3(gx, y, gz, f.fseed ^ 0x9) < 0.5) continue; // 天辺は不揃い
+          this.setLocal(gx, y, gz, hash3(gx, y, gz, f.fseed) < 0.3 ? B.MOSSY_STONE_BRICK : B.STONE_BRICK);
+        } else {
+          this.setLocal(gx, y, gz, y === base ? B.STONE_BRICK : B.AIR); // 内部は空洞＋床
+        }
+      }
+      if (dx === 0 && dz === 0) this.setLocal(gx, base + 1, gz, B.GLOW); // 灯り
+    });
+  }
+
+  stampWaterfall(f) { // 滝（切り立った岩壁を流れ落ちる水）
+    const ax = f.ax, az = f.az, base = f.h;
+    const Hc = 10 + (hash2(ax, az, f.fseed) * 8 | 0);
+    const R = 4;
+    this._each(ax, az, R, (gx, gz) => {
+      const dx = gx - ax, dz = gz - az;
+      if (Math.abs(dx) <= 1 && dz >= 0 && dz <= 2) { // 岩壁
+        for (let y = base; y <= base + Hc; y++) this.setLocal(gx, y, gz, B.STONE);
+      }
+      if (dx === 0 && dz === -1) { // 前面を落ちる水
+        for (let y = base + 1; y <= base + Hc; y++) this.setLocal(gx, y, gz, B.WATER);
+      }
+      if (Math.abs(dx) <= 2 && dz >= -3 && dz <= -1) { // 滝壺
+        const g = this.gh(gx, gz);
+        this.setLocal(gx, g, gz, B.WATER);
+      }
+    });
+  }
+
+  stampHotSpring(f) { // 温泉（浅い湯だまり＋石の縁）
+    const ax = f.ax, az = f.az, base = f.h;
+    const rad = 3 + (hash2(ax, az, f.fseed) * 3 | 0);
+    const R = rad + 1;
+    this._each(ax, az, R, (gx, gz) => {
+      const dx = gx - ax, dz = gz - az, d = Math.sqrt(dx * dx + dz * dz);
+      if (d > rad + 0.5) return;
+      if (d <= rad - 1) { // 湯
+        this.setLocal(gx, base, gz, B.WATER);
+        this.setLocal(gx, base - 1, gz, B.STONE);
+        this.setLocal(gx, base + 1, gz, B.AIR);
+      } else { // 石の縁
+        this.setLocal(gx, base, gz, hash2(gx, gz, f.fseed) < 0.4 ? B.MOSSY_STONE_BRICK : B.STONE);
+      }
+    });
+  }
+
+  stampIsland(f) { // 海の離島（砂浜＋ヤシ）
+    const ax = f.ax, az = f.az, sea = this.world.terrain.sea;
+    const rad = 5 + (hash2(ax, az, f.fseed) * 4 | 0);
+    const top = sea + 2 + (hash2(ax, az, f.fseed ^ 0x1) * 4 | 0);
+    const R = rad + 1;
+    this._each(ax, az, R, (gx, gz) => {
+      const dx = gx - ax, dz = gz - az, d = Math.sqrt(dx * dx + dz * dz);
+      if (d > rad) return;
+      const th = Math.round(top - (d / rad) * (top - sea));
+      for (let y = sea - 3; y <= th; y++) this.setLocal(gx, y, gz, y >= th - 1 ? B.SAND : B.STONE);
+      if (dx === 0 && dz === 0) this.drawTree(gx, th, gz, 'palm');
+    });
+  }
+
+  stampUnderground(f) {
+    if (f.type === 'ug_temple') return this.stampTemple(f);
+    // ug_lake / ug_cavern: 楕円空洞。lake は下半分を水にする
+    const ax = f.ax, az = f.az, ay = f.ay, lake = f.type === 'ug_lake';
+    const rx = (lake ? 7 : 9) + (hash2(ax, az, f.fseed) * 4 | 0);
+    const ry = 4 + (hash2(ax, az, f.fseed ^ 0x2) * 3 | 0);
+    const R = rx + 1;
+    this._each(ax, az, R, (gx, gz) => {
+      const dx = gx - ax, dz = gz - az;
+      for (let y = ay - ry; y <= ay + ry; y++) {
+        const dy = (y - ay) / ry, dd = (dx * dx + dz * dz) / (rx * rx) + dy * dy;
+        if (dd > 1) continue;
+        if (lake && y <= ay) this.setLocal(gx, y, gz, B.WATER);
+        else this.setLocal(gx, y, gz, B.AIR);
+      }
+      if (lake && dx === 0 && dz === 0) this.setLocal(gx, ay - ry, gz, B.GLOW);
+    });
+  }
+
+  stampTemple(f) { // 地下神殿（石レンガの部屋＋灯り＋宝）
+    const ax = f.ax, az = f.az, ay = f.ay;
+    const hw = 4, H = 5, R = hw + 1;
+    this._each(ax, az, R, (gx, gz) => {
+      const dx = gx - ax, dz = gz - az;
+      if (Math.abs(dx) > hw || Math.abs(dz) > hw) return;
+      const edge = Math.abs(dx) === hw || Math.abs(dz) === hw;
+      for (let y = ay; y <= ay + H; y++) {
+        const shell = edge || y === ay || y === ay + H;
+        if (shell) this.setLocal(gx, y, gz, hash3(gx, y, gz, f.fseed) < 0.3 ? B.MOSSY_STONE_BRICK : B.STONE_BRICK);
+        else this.setLocal(gx, y, gz, B.AIR);
+      }
+      if ((Math.abs(dx) === hw - 1) && (Math.abs(dz) === hw - 1)) this.setLocal(gx, ay + H - 1, gz, B.GLOW); // 四隅の灯り
+      if (dx === 0 && dz === 0) { this.setLocal(gx, ay + 1, gz, B.GOLD_BLOCK); this.setLocal(gx, ay + 2, gz, B.DIAMOND_BLOCK); } // 宝
+    });
   }
   // ネザー地形: 溶岩の海・天井・グロウストーン
   generateNether() {
