@@ -141,6 +141,26 @@ worlds/*.json         … どこで遊ぶか（地形・鉱石・モンスター
 6. 上記に当てはまらない根本的な変更のみ `js/core/*.js` を編集する。編集する場合も
    既存のメソッド構造・フック名は変えない（他のモジュールが依存しているため）
 
+## 巨大オープンワールド生成エンジン（Phase1）
+
+`worlds/*.json` に `"engine": "openworld"` を指定したワールドだけ、新しい生成エンジン
+（`js/core/worldgen.js` の `OpenWorldGen`）が有効になる。指定が無い従来ワールドは一切影響を
+受けず、これまでどおりの地形生成パスで動く（`World.gen === null` で分岐）。
+
+- **仕組み**: シード値から用途別の独立ノイズ層（Height / Temperature / Humidity /
+  BiomeWeight / River / Cave）を派生させ、Perlin(fBm) と Ridged(尾根) を合成して連続した
+  巨大地形を作る。35種類のバイオームを気候×標高×稀少マスクで決定し、草・葉・水の色は
+  気候から連続補間するので境界が自然につながる。
+- **接続点**: `config-loader.js` が `engine==="openworld"` のとき `OpenWorldGen` を生成し、
+  `game.js` がオーバーワールド次元の `World` にだけ `opts.gen` として渡す。`world.js` は
+  `this.gen` があるときだけ `generateOpen()` / `plantTreesOpen()` / 洞窟 / 色ティントを使う。
+- **大規模対応**: `worldSize` は 8192 以上に拡張可能。従来の平坦な列キャッシュ配列
+  （512²前提）は `gen` 有効時には確保せず、`OpenWorldGen` 側が列単位でキャッシュする。
+- **パラメータ**: `terrain.overworld.openworld` に `heightAmp` / `mountainAmp` /
+  `continentFreq` を置くと地形の起伏・山の高さ・大陸スケールを調整できる。
+- **今後（Phase2以降）**: 滝・遺跡・都市・ランドマーク等を足すときも従来エンジンには
+  触れず、`worldgen.js` と `generateOpen()` 側の配置ロジックを拡張する。
+
 ## セーブデータ
 
 - 保存キーは `profile.id` と `world.id` の組み合わせ（`minicraft_<profile>_<world>_v1`）。

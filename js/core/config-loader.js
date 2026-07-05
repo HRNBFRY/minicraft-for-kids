@@ -1,4 +1,5 @@
 import { CFG, DIM, blockIdByName, DEFAULT_SKY } from './constants.js';
+import { OpenWorldGen } from './worldgen.js';
 
 const BASE = new URL('../../', import.meta.url); // index.html と同じ階層
 
@@ -89,10 +90,16 @@ export function applyWorldConfig(profile, world) {
     };
   });
 
+  // 巨大オープンワールド生成エンジン（world.json で engine:"openworld" のときだけ生成）
+  const gen = world.engine === 'openworld'
+    ? new OpenWorldGen(world.seed, world.terrain.overworld)
+    : null;
+
   return {
     terrainByDim: [world.terrain.overworld, world.terrain.nether, world.terrain.end],
     oreDefs: overOres,
     sky,
-    plantsEnabled: !!(world.plants && world.plants.trees)
+    plantsEnabled: !!(world.plants && world.plants.trees),
+    gen
   };
 }

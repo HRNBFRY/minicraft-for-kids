@@ -80,7 +80,8 @@ export class Game {
       const opts = {
         atlasCols: ATLAS_COLS, atlasRows: ATLAS_ROWS,
         plantsEnabled: derived.plantsEnabled,
-        oreDefs: d === DIM.OVER ? derived.oreDefs : []
+        oreDefs: d === DIM.OVER ? derived.oreDefs : [],
+        gen: d === DIM.OVER ? derived.gen : null // 巨大生成はオーバーワールドのみ
       };
       this.worlds.push(new World(world.seed, grp, this.matSolid, this.matAlpha, d, derived.terrainByDim[d], opts));
     }

@@ -28,6 +28,7 @@ export class Chunk {
   generate() {
     if (this.world.dim === DIM.NETHER) { this.generateNether(); return; }
     if (this.world.dim === DIM.END) { this.generateEnd(); return; }
+    if (this.world.gen) { this.generateOpen(); return; } // 巨大オープンワールド
     const d = new Uint8Array(16 * 16 * CFG.HEIGHT);
     const w = this.world, x0 = this.cx * 16, z0 = this.cz * 16;
     const sea = w.terrain.sea;
@@ -63,6 +64,112 @@ export class Chunk {
     this.data = d;
     this.plantTrees();
     this.applyEdits();
+  }
+  // 巨大オープンワールド地形: gen（OpenWorldGen）が返す列情報で地表・地下・水・洞窟を組む
+  generateOpen() {
+    const d = new Uint8Array(16 * 16 * CFG.HEIGHT);
+    const w = this.world, gen = w.gen, x0 = this.cx * 16, z0 = this.cz * 16;
+    const sea = w.terrain.sea;
+    for (let lz = 0; lz < 16; lz++) for (let lx = 0; lx < 16; lx++) {
+      const gx = x0 + lx, gz = z0 + lz, col = lx + (lz << 4);
+      const c = gen.column(gx, gz);
+      const h = c.h, land = h > sea;
+      for (let y = 0; y <= h; y++) {
+        let id;
+        if (y === 0) id = B.BEDROCK;
+        else if (y < h - 3) id = w.pickUnderground(gx, y, gz); // 鉱石＋石（既存関数を再利用）
+        else if (y < h) id = c.sub;
+        else id = c.surf; // 地表
+        // 洞窟: 陸の地下だけ空洞化（海底のスカスカ化を防ぐ）
+        if (id !== B.BEDROCK && y < h && land && gen.caveAt(gx, y, gz)) id = B.AIR;
+        d[col + (y << 8)] = id;
+      }
+      for (let y = h + 1; y <= sea; y++) d[col + (y << 8)] = B.WATER; // 海抜以下を水で満たす
+    }
+    this.data = d;
+    this.plantTreesOpen();
+    this.applyEdits();
+  }
+  // オープンワールドの植生: 列ごとの biome/tree/density に従い木を配置
+  plantTreesOpen() {
+    const w = this.world, gen = w.gen, x0 = this.cx * 16, z0 = this.cz * 16;
+    if (!w.plantsEnabled) return;
+    const sea = w.terrain.sea;
+    for (let gz = z0 - 3; gz < z0 + 19; gz++) for (let gx = x0 - 3; gx < x0 + 19; gx++) {
+      if (gx < 0 || gz < 0 || gx >= CFG.WORLD_SIZE || gz >= CFG.WORLD_SIZE) continue;
+      const c = gen.column(gx, gz);
+      if (c.tree === 'none' || c.density <= 0) continue;
+      const r = hash2(gx, gz, w.seed ^ 0x7ee5);
+      if (r >= c.density * 0.12) continue; // density(0..0.9) を出現確率へ写像
+      const h = c.h;
+      if (h <= sea || h > CFG.HEIGHT - 16) continue;
+      this.drawTree(gx, h, gz, c.tree);
+    }
+  }
+  // 木の形状（種別ごと）。幹=WOOD、葉=LEAVES（色はバイオームtintで変化）
+  drawTree(gx, h, gz, kind) {
+    const w = this.world, seed = w.seed;
+    const rnd = (s) => hash2(gx, gz, seed ^ s);
+    const canopy = (cy, rad, chop) => {
+      for (let dx = -rad; dx <= rad; dx++) for (let dz = -rad; dz <= rad; dz++) {
+        if (chop && Math.abs(dx) === rad && Math.abs(dz) === rad && hash3(gx + dx, cy, gz + dz, seed) < 0.55) continue;
+        this.setLocalIfEmpty(gx + dx, cy, gz + dz, B.LEAVES);
+      }
+    };
+    if (kind === 'bamboo') { // 竹: 細く高い数本
+      const n = 1 + (rnd(0x1) * 3 | 0);
+      for (let k = 0; k < n; k++) {
+        const bx = gx + (k % 2), bz = gz + ((k >> 1) & 1);
+        const th = 5 + (hash2(bx, bz, seed ^ 0x2) * 6 | 0);
+        for (let y = h + 1; y <= h + th; y++) this.setLocal(bx, y, bz, B.WOOD);
+        this.setLocalIfEmpty(bx, h + th + 1, bz, B.LEAVES);
+      }
+      return;
+    }
+    if (kind === 'dead') { // 枯れ木: 幹のみ
+      const th = 3 + (rnd(0x3) * 3 | 0);
+      for (let y = h + 1; y <= h + th; y++) this.setLocal(gx, y, gz, B.WOOD);
+      return;
+    }
+    if (kind === 'pine') { // 針葉樹: 円錐
+      const th = 7 + (rnd(0x4) * 5 | 0);
+      for (let y = h + 1; y <= h + th; y++) this.setLocal(gx, y, gz, B.WOOD);
+      for (let ly = h + 3; ly <= h + th + 1; ly++) {
+        const rad = Math.max(0, Math.round((h + th - ly) / 2));
+        canopy(ly, rad, rad >= 2);
+      }
+      return;
+    }
+    if (kind === 'palm') { // ヤシ: 高い幹＋頂上の葉
+      const th = 6 + (rnd(0x5) * 3 | 0);
+      for (let y = h + 1; y <= h + th; y++) this.setLocal(gx, y, gz, B.WOOD);
+      for (const [dx, dz] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2], [1, 1], [-1, -1], [1, -1], [-1, 1]])
+        this.setLocalIfEmpty(gx + dx, h + th + (dx || dz ? 0 : 1), gz + dz, B.LEAVES);
+      return;
+    }
+    if (kind === 'acacia') { // アカシア: 平たい傘状
+      const th = 5 + (rnd(0x6) * 2 | 0);
+      for (let y = h + 1; y <= h + th; y++) this.setLocal(gx, y, gz, B.WOOD);
+      canopy(h + th, 3, true); canopy(h + th + 1, 2, true);
+      return;
+    }
+    if (kind === 'jungle' || kind === 'giant') { // ジャングル大木
+      const th = 9 + (rnd(0x7) * 8 | 0);
+      for (let y = h + 1; y <= h + th; y++) this.setLocal(gx, y, gz, B.WOOD);
+      canopy(h + th, 2, true); canopy(h + th - 1, 3, true); canopy(h + th - 2, 2, true);
+      return;
+    }
+    if (kind === 'mush') { // 巨大キノコ: 幹＋広い笠
+      const th = 4 + (rnd(0x8) * 3 | 0);
+      for (let y = h + 1; y <= h + th; y++) this.setLocal(gx, y, gz, B.WOOD);
+      canopy(h + th + 1, 3, true);
+      for (const [dx, dz] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) this.setLocalIfEmpty(gx + dx, h + th, gz + dz, B.LEAVES);
+      return;
+    }
+    // oak / autumn / cherry / birch など標準広葉樹（色はtintで差が出る）
+    const th = 4 + (rnd(0x9) * 3 | 0);
+    for (let y = h + 1; y <= h + th; y++) this.setLocal(gx, y, gz, B.WOOD);
+    canopy(h + th - 1, 2, true); canopy(h + th, 2, true); canopy(h + th + 1, 1, false);
   }
   // ネザー地形: 溶岩の海・天井・グロウストーン
   generateNether() {
@@ -250,13 +357,21 @@ export class Chunk {
           const tile = f === 3 ? def.tiles[0] : f === 2 ? def.tiles[1] : def.tiles[2];
           const tx = tile % w.atlasCols, ty = (tile / w.atlasCols) | 0;
           const base = bkt.pos.length / 3, sh = face.s;
+          // バイオーム色ティント（オープンワールドのみ／草・葉・水）。気候から連続補間
+          // されているので境界が自然につながる。
+          let cr = sh, cg = sh, cb = sh;
+          if (w.gen && (id === B.GRASS || id === B.LEAVES || id === B.WATER)) {
+            const cc = w.gen.column(x0 + lx, z0 + lz);
+            const tnt = id === B.LEAVES ? cc.tintL : (id === B.WATER ? cc.tintW : cc.tintG);
+            cr = sh * tnt[0]; cg = sh * tnt[1]; cb = sh * tnt[2];
+          }
           for (let ci = 0; ci < 4; ci++) {
             const c = face.c[ci];
             let py = y + c[1];
             if (def.liquid && f === 3 && c[1] === 1) py -= 0.12;
             bkt.pos.push(x0 + lx + c[0], py, z0 + lz + c[2]);
             bkt.nor.push(face.d[0], face.d[1], face.d[2]);
-            bkt.col.push(sh, sh, sh);
+            bkt.col.push(cr, cg, cb);
             bkt.uv.push((tx + c[3]) / w.atlasCols, 1 - (ty + 1 - c[4]) / w.atlasRows);
           }
           bkt.idx.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
@@ -314,12 +429,20 @@ export class World {
     this.atlasRows = (opts && opts.atlasRows) || ATLAS_ROWS;
     this.plantsEnabled = !opts || opts.plantsEnabled !== false;
     this.oreDefs = (opts && opts.oreDefs) || [];
+    // 巨大オープンワールド生成エンジン（world.json で engine:"openworld" のときだけ注入される）。
+    // null のときは従来の生成パスがそのまま使われる。
+    this.gen = (opts && opts.gen) || null;
     this.noise = new Noise(seed);
     this.chunks = new Map();
     this.edits = new Map();
     this.dirty = new Set();
-    this.heightCache = new Uint8Array(CFG.WORLD_SIZE * CFG.WORLD_SIZE);
-    this.biomeCache = new Uint8Array(CFG.WORLD_SIZE * CFG.WORLD_SIZE);
+    // 従来パスの列キャッシュ（512世界前提の平坦配列）。巨大世界では gen 側が
+    // 独自にキャッシュするので確保しない（8192²=64MBの確保を避ける）。
+    if (!this.gen) {
+      this.heightCache = new Uint8Array(CFG.WORLD_SIZE * CFG.WORLD_SIZE);
+      this.biomeCache = new Uint8Array(CFG.WORLD_SIZE * CFG.WORLD_SIZE);
+    }
+    this.col = null; // gen パスの現在列情報
     this.meshCount = 0;
     this.saveDirty = false;
     this.frame = 0;
@@ -343,6 +466,11 @@ export class World {
   }
 
   columnInto(x, z) {
+    if (this.gen) { // 巨大オープンワールド: 生成エンジンに委譲
+      const c = this.gen.column(x, z);
+      this.col = c; this.colH = c.h; this.colB = c.biome;
+      return;
+    }
     const i = x + (z << 9);
     if (this.heightCache[i] === 0) {
       const n = this.noise;

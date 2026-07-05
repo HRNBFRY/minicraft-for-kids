@@ -59,4 +59,32 @@ export class Noise {
     }
     return sum / norm;
   }
+
+  // Ridged multifractal（尾根状ノイズ）: 山脈や峡谷の鋭い稜線を作る。返り値 [0,1]
+  ridged(x, y, oct) {
+    let amp = 1, freq = 1, sum = 0, norm = 0;
+    for (let i = 0; i < oct; i++) {
+      let n = 1 - Math.abs(this.perlin2(x * freq, y * freq)); // 折り返して尾根化
+      n *= n;                                                 // 稜線を鋭く
+      sum += amp * n;
+      norm += amp; amp *= 0.5; freq *= 2;
+    }
+    return sum / norm;
+  }
+
+  // Domain warp: 座標自体をノイズでずらし、うねった自然な模様を得る
+  // scale=座標のずらし量。fn(nx,ny) に歪めた座標を渡して評価する
+  warp(x, y, scale, warpFreq) {
+    const wx = this.perlin2(x * warpFreq + 19.1, y * warpFreq - 47.3);
+    const wy = this.perlin2(x * warpFreq - 71.7, y * warpFreq + 3.9);
+    return [x + wx * scale, y + wy * scale];
+  }
+}
+
+// 独立したシード系列を得るためのユーティリティ。
+// 同じ seed から用途別（Height/Temp/…）に相関の低い Noise を作るために使う。
+export function derivedSeed(seed, salt) {
+  let h = Math.imul(seed ^ salt, 2654435761);
+  h ^= h >>> 15; h = Math.imul(h, 2246822519); h ^= h >>> 13;
+  return h >>> 0;
 }

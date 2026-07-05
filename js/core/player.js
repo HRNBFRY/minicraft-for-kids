@@ -15,9 +15,11 @@ export class Player {
     this.EYE = 1.62;
   }
   spawn() {
-    let sx = 256, sz = 256;
-    search: for (let r = 0; r < 250; r += 2) {
-      const cands = [[256 + r, 256], [256 - r, 256], [256, 256 + r], [256, 256 - r]];
+    // ワールド中心から陸地を探す（512世界では従来どおり 256,256）
+    const cx = CFG.WORLD_SIZE >> 1, cz = CFG.WORLD_SIZE >> 1;
+    let sx = cx, sz = cz;
+    search: for (let r = 0; r < Math.min(1200, CFG.WORLD_SIZE >> 1); r += 2) {
+      const cands = [[cx + r, cz], [cx - r, cz], [cx, cz + r], [cx, cz - r]];
       for (let i = 0; i < 4; i++) {
         this.world.columnInto(cands[i][0], cands[i][1]);
         if (this.world.colH > this.world.terrain.sea + 1) { sx = cands[i][0]; sz = cands[i][1]; break search; }

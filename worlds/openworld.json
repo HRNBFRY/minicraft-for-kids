@@ -1,0 +1,39 @@
+{
+  "id": "openworld",
+  "name": "巨大オープンワールド",
+  "engine": "openworld",
+  "seed": 20260705,
+  "worldSize": 8192,
+  "chunkSize": 16,
+  "height": 128,
+  "renderDist": 7,
+  "gravityMultiplier": 1,
+  "movement": { "walk": 5.6, "fly": 11, "water": 3.2 },
+  "palette": {},
+  "terrain": {
+    "overworld": {
+      "sea": 30,
+      "snowLine": 82,
+      "openworld": {
+        "heightAmp": 34,
+        "mountainAmp": 90,
+        "continentFreq": 0.00085
+      },
+      "biomeThresholds": { "desertTemp": 0.6, "desertWet": 0.15, "forestWet": 0.25, "mountainHeight": 56 },
+      "treeDensity": { "forest": 0.022, "plains": 0.004, "snow": 0.006, "mountain": 0.005 },
+      "ores": [
+        { "id": "GRAVEL", "chance": 0.03, "minY": 0, "maxY": 128 },
+        { "id": "COAL_ORE", "chance": 0.02, "minY": 5, "maxY": 70 },
+        { "id": "IRON_ORE", "chance": 0.012, "minY": 5, "maxY": 45 }
+      ]
+    },
+    "nether": { "lavaLevel": 32, "wallChance": 0.82, "glowChance": 0.045, "oreChance": 0.03 },
+    "end": { "islandRadius": 90, "pillarCount": 6 }
+  },
+  "monsters": ["dragon"],
+  "plants": { "trees": true },
+  "weather": { "enabled": false, "type": "rain" },
+  "dayNightCycle": { "enabled": true, "dayLengthSec": 900 },
+  "bgm": null,
+  "specialEvents": []
+}
