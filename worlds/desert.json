@@ -1,0 +1,45 @@
+{
+  "id": "desert",
+  "name": "さばくワールド",
+  "seed": 20260710,
+  "worldSize": 512,
+  "chunkSize": 16,
+  "height": 128,
+  "renderDist": 6,
+  "gravityMultiplier": 1,
+  "movement": { "walk": 5.6, "fly": 11, "water": 3.0 },
+  "palette": {
+    "grass": [196, 168, 96],
+    "leaves": [150, 140, 60],
+    "stone": [178, 132, 90],
+    "sand": [230, 175, 110]
+  },
+  "terrain": {
+    "overworld": {
+      "sea": 16,
+      "snowLine": 200,
+      "biomeThresholds": { "desertTemp": -2.8, "desertWet": 3, "forestWet": 3, "mountainHeight": 50 },
+      "treeDensity": { "forest": 0.002, "plains": 0.002, "snow": 0.001, "mountain": 0.003 },
+      "ores": [
+        { "id": "GRAVEL", "chance": 0.05, "minY": 0, "maxY": 128 },
+        { "id": "COAL_ORE", "chance": 0.02, "minY": 5, "maxY": 60 },
+        { "id": "IRON_ORE", "chance": 0.012, "minY": 5, "maxY": 40 }
+      ]
+    },
+    "nether": { "lavaLevel": 32, "wallChance": 0.82, "glowChance": 0.045, "oreChance": 0.03 },
+    "end": { "islandRadius": 90, "pillarCount": 6 }
+  },
+  "sky": {
+    "overworld": {
+      "sky": "#f3c77e", "fogNear": 70,
+      "ambIntensity": 0.55, "ambColor": "#ffe9c2",
+      "sunIntensity": 0.7, "sunColor": "#fff0c0"
+    }
+  },
+  "monsters": ["dragon"],
+  "plants": { "trees": true },
+  "weather": { "enabled": false, "type": "rain" },
+  "dayNightCycle": { "enabled": true, "dayLengthSec": 600 },
+  "bgm": null,
+  "specialEvents": []
+}
