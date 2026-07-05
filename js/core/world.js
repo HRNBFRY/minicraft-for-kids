@@ -2,7 +2,7 @@
  * 地形の見た目や出現率は World 構築時に渡される terrainCfg（worlds/*.json 由来）
  * だけで変化する。アルゴリズム自体は全ワールド共通（"同じ機能を複数実装しない"方針）。
  */
-import { CFG, B, BLOCK_DEFS, BIOME, FACES, DIM } from './constants.js';
+import { CFG, B, BLOCK_DEFS, BIOME, FACES, DIM, ATLAS_COLS, ATLAS_ROWS } from './constants.js';
 import { hash2, hash3, Noise } from './noise.js';
 
 // 描画半径内のオフセット（近い順） -- CFG.RENDER_DIST 確定後に構築
@@ -93,8 +93,58 @@ export class Chunk {
         if (gh < t.glowChance * 0.27 && ceil - 1 > floor + 2) d[col + ((ceil - 1) << 8)] = B.GLOW;
       }
     }
+    const fort = this.fortressInfo();
+    if (fort) this.drawFortress(d, fort);
     this.data = d;
     this.applyEdits();
+  }
+  // ネザー要塞: 64x64ブロックのセルごとに確率で1つ配置を決める（決定的・チャンク非依存）
+  // セル内に収まる大きさに制限しているので、このチャンクが属するセルだけ調べれば良い
+  // （木の配置と同じ考え方: 各チャンクは自分の担当範囲だけ書き込む）
+  fortressInfo() {
+    const w = this.world, seed = w.seed;
+    if (w.terrain.fortressEnabled === false) return null; // world.json で明示的にoffも可能
+    const CELL = 64;
+    const cellX = Math.floor((this.cx * 16) / CELL), cellZ = Math.floor((this.cz * 16) / CELL);
+    const r = hash2(cellX, cellZ, seed ^ 0xf057);
+    const chance = w.terrain.fortressChance != null ? w.terrain.fortressChance : 0.35;
+    if (r >= chance) return null;
+    const ox = cellX * CELL + 16 + ((hash2(cellX, cellZ, seed ^ 0xf058) * 16) | 0);
+    const oz = cellZ * CELL + 16 + ((hash2(cellX, cellZ, seed ^ 0xf059) * 16) | 0);
+    const horiz = hash2(cellX, cellZ, seed ^ 0xf05a) < 0.5;
+    const len = 16 + ((hash2(cellX, cellZ, seed ^ 0xf05b) * 10) | 0); // 16-25
+    const baseY = 38 + ((hash2(cellX, cellZ, seed ^ 0xf05c) * 12) | 0); // 38-49（溶岩面より上）
+    return { ox, oz, horiz, len, baseY };
+  }
+  // ネザーレンガの橋状通路（手すり・狭間・支柱つき）をこのチャンクの担当分だけ描画
+  drawFortress(d, f) {
+    const { ox, oz, horiz, len, baseY } = f;
+    for (let i = 0; i < len; i++) {
+      const gx = horiz ? ox + i : ox;
+      const gz = horiz ? oz : oz + i;
+      if ((gx >> 4) !== this.cx || (gz >> 4) !== this.cz) continue; // 自チャンク外は担当しない
+      const lx = gx & 15, lz = gz & 15;
+      for (let s = -2; s <= 2; s++) {
+        const fx = horiz ? lx : lx + s;
+        const fz = horiz ? lz + s : lz;
+        if (fx < 0 || fx > 15 || fz < 0 || fz > 15) continue;
+        const col = fx + (fz << 4);
+        d[col + (baseY << 8)] = B.NETHER_BRICK; // 床
+        for (let cy = baseY + 1; cy <= baseY + 4; cy++) d[col + (cy << 8)] = B.AIR; // 通路の空洞
+        if (Math.abs(s) === 2) { // 手すり＋狭間(凹凸)模様
+          d[col + ((baseY + 1) << 8)] = B.NETHER_BRICK;
+          if (i % 3 !== 0) d[col + ((baseY + 2) << 8)] = B.NETHER_BRICK;
+        }
+      }
+      if (i % 6 === 0) { // 支柱（下の溶岩・岩盤地帯まで伸ばす）
+        const col = lx + (lz << 4);
+        for (let py = baseY - 1; py > 4; py--) {
+          const cur = d[col + (py << 8)];
+          if (cur === B.NETHERRACK || cur === B.LAVA || cur === B.AIR) d[col + (py << 8)] = B.NETHER_BRICK;
+          else break;
+        }
+      }
+    }
   }
   // ジ・エンド地形: 浮遊島と黒曜石の柱
   generateEnd() {
@@ -260,8 +310,8 @@ export class World {
     this.matSolid = matSolid;
     this.matAlpha = matAlpha;
     this.terrain = terrainCfg;
-    this.atlasCols = (opts && opts.atlasCols) || 6;
-    this.atlasRows = (opts && opts.atlasRows) || 6;
+    this.atlasCols = (opts && opts.atlasCols) || ATLAS_COLS;
+    this.atlasRows = (opts && opts.atlasRows) || ATLAS_ROWS;
     this.plantsEnabled = !opts || opts.plantsEnabled !== false;
     this.oreDefs = (opts && opts.oreDefs) || [];
     this.noise = new Noise(seed);

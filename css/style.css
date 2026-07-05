@@ -91,3 +91,4 @@ canvas{display:block}
 .setupStart{margin-top:22px;background:#ffd83d;color:#2a2000;border:none;border-radius:8px;
   padding:12px 28px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
 .setupStart:hover{background:#ffe36b}
+.setupVersion{margin-top:16px;font-size:11px;color:#6f86ad;letter-spacing:1px}

@@ -1,6 +1,7 @@
 import { listProfiles, listWorlds, loadProfile, loadWorld, applyWorldConfig } from './core/config-loader.js';
 import { resolveModules } from './modules/registry.js';
 import { Game } from './core/game.js';
+import { GAME_VERSION } from './core/constants.js';
 
 const LAST_CHOICE_KEY = 'minicraft_last_choice_v1';
 
@@ -38,7 +39,8 @@ async function showSetupScreen() {
     '<div class="setupRow" id="setupProfiles"></div>' +
     '<div class="setupLabel">どのワールド？</div>' +
     '<div class="setupRow" id="setupWorlds"></div>' +
-    '<button id="setupStart" class="setupStart">スタート</button>';
+    '<button id="setupStart" class="setupStart">スタート</button>' +
+    '<div class="setupVersion">Ver. ' + GAME_VERSION + '</div>';
   root.appendChild(box);
 
   const profileRow = box.querySelector('#setupProfiles');

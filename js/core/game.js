@@ -1,4 +1,4 @@
-import { CFG, B, BLOCK_DEFS, DIM, DIM_NAME, CORE_ITEM_DEFS } from './constants.js';
+import { CFG, B, BLOCK_DEFS, DIM, DIM_NAME, CORE_ITEM_DEFS, ATLAS_COLS, ATLAS_ROWS } from './constants.js';
 import { World } from './world.js';
 import { TextureGenerator } from './textures.js';
 import { Player } from './player.js';
@@ -73,7 +73,7 @@ export class Game {
     for (let d = 0; d < 3; d++) {
       const grp = new THREE.Group();
       const opts = {
-        atlasCols: 6, atlasRows: 6,
+        atlasCols: ATLAS_COLS, atlasRows: ATLAS_ROWS,
         plantsEnabled: derived.plantsEnabled,
         oreDefs: d === DIM.OVER ? derived.oreDefs : []
       };

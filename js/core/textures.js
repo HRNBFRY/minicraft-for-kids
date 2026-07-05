@@ -258,6 +258,148 @@ export class TextureGenerator {
       }
     }
   }
+  // 汎用: レンガ状パターン（通常レンガ/ネザーレンガ/石レンガで色違い使い回し）
+  brickPattern(t, mortar, brick) {
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+      const row = y >> 2;
+      const isMortar = (y % 4 === 3) || (((x + (row % 2) * 4) % 8) === 7);
+      const f = 1 + (this.rand() - 0.5) * (isMortar ? 0.08 : 0.12);
+      const c = isMortar ? mortar : brick;
+      this.p(t, x, y, c[0] * f, c[1] * f, c[2] * f);
+    }
+  }
+  endCrystalTex(t) {
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+      const dx = x - 7.5, dy = y - 7.5, d = Math.sqrt(dx * dx + dy * dy);
+      if (d < 7) {
+        const r = this.rand();
+        this.p(t, x, y, r < 0.4 ? 255 : 190, r < 0.4 ? 255 : 245, r < 0.4 ? 255 : 210, 230);
+      } else this.p(t, x, y, 255, 255, 255, 0);
+    }
+  }
+  enchantTop(t) {
+    this.speckle(t, [70, 40, 100], 0.12);
+    for (let y = 3; y < 13; y++) for (let x = 3; x < 13; x++) {
+      const b = (x === 3 || x === 12 || y === 3 || y === 12);
+      this.p(t, x, y, b ? 200 : 140, b ? 170 : 90, b ? 255 : 210);
+    }
+  }
+  enchantSide(t) {
+    this.speckle(t, [70, 46, 30], 0.15);
+    for (let i = 3; i < 13; i++) { this.p(t, i, 2, 150, 110, 255); this.p(t, i, 13, 150, 110, 255); }
+  }
+  furnaceTop(t) {
+    this.speckle(t, [130, 130, 132], 0.1);
+  }
+  furnaceSide(t) {
+    this.speckle(t, [120, 120, 122], 0.12);
+    for (let y = 5; y < 12; y++) for (let x = 4; x < 12; x++) {
+      const b = (x === 4 || x === 11 || y === 5 || y === 11);
+      this.p(t, x, y, b ? 60 : 22, b ? 60 : 20, b ? 62 : 22);
+    }
+  }
+  bedTex(t, color) {
+    this.speckle(t, color, 0.08);
+    for (let x = 0; x < 16; x++) {
+      this.p(t, x, 0, 255, 255, 255);
+      this.p(t, x, 15, color[0] * 0.6, color[1] * 0.6, color[2] * 0.6);
+    }
+  }
+  commandBlockTex(t) {
+    this.speckle(t, [190, 150, 90], 0.1);
+    for (let y = 3; y < 13; y++) for (let x = 3; x < 13; x++) {
+      const b = (x === 3 || x === 12 || y === 3 || y === 12);
+      this.p(t, x, y, b ? 110 : 210, b ? 90 : 170, b ? 50 : 100);
+    }
+  }
+  pistonTex(t) {
+    this.speckle(t, [150, 150, 140], 0.08);
+    for (let y = 2; y < 14; y++) for (let x = 2; x < 14; x++) {
+      const b = (x === 2 || x === 13 || y === 2 || y === 13);
+      this.p(t, x, y, b ? 90 : 180, b ? 86 : 180, b ? 70 : 160);
+    }
+  }
+  stickyPistonTex(t) {
+    this.pistonTex(t);
+    for (let y = 6; y < 10; y++) for (let x = 6; x < 10; x++) this.p(t, x, y, 70, 150, 60);
+  }
+  redstoneTorchTex(t) {
+    this.speckle(t, [120, 120, 124], 0.1);
+    for (let y = 4; y < 11; y++) for (let x = 6; x < 10; x++) {
+      const r = this.rand();
+      this.p(t, x, y, r < 0.5 ? 255 : 200, r < 0.5 ? 40 : 20, r < 0.5 ? 30 : 20);
+    }
+  }
+  leverTex(t) {
+    this.cobble(t);
+    for (let y = 2; y < 13; y++) this.p(t, 7 + (((y - 2) / 4) | 0), y, 40, 32, 28);
+  }
+  tntTex(t) {
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+      const band = y >= 6 && y < 10;
+      const f = 1 + (this.rand() - 0.5) * 0.1;
+      if (band) this.p(t, x, y, 235 * f, 235 * f, 225 * f);
+      else this.p(t, x, y, 205 * f, 50 * f, 40 * f);
+    }
+    for (let x = 0; x < 16; x++) { this.p(t, x, 6, 40, 32, 28); this.p(t, x, 9, 40, 32, 28); }
+  }
+  bookshelfTex(t) {
+    this.planks(t);
+    const cols = [[180, 40, 40], [40, 90, 170], [210, 180, 60], [60, 140, 90]];
+    for (let y = 1; y < 15; y += 3) {
+      for (let x = 1; x < 15; x++) {
+        const c = cols[(x + y) % cols.length];
+        this.p(t, x, y, c[0], c[1], c[2]);
+      }
+    }
+  }
+  quartzTex(t) {
+    this.speckle(t, [235, 230, 220], 0.05);
+    for (let x = 0; x < 16; x += 4) for (let y = 0; y < 16; y++) this.p(t, x, y, 210, 204, 190);
+  }
+  mossyStoneBrick(t) {
+    this.brickPattern(t, [150, 150, 150], [120, 120, 120]);
+    for (let i = 0; i < 18; i++) {
+      const x = (this.rand() * 16) | 0, y = (this.rand() * 16) | 0;
+      this.p(t, x, y, 70, 120, 60);
+    }
+  }
+  pumpkinTex(t) {
+    this.speckle(t, [220, 120, 30], 0.1);
+    for (let x = 0; x < 16; x += 4) for (let y = 0; y < 16; y++) this.p(t, x, y, 180, 90, 20);
+    const dark = [40, 26, 10];
+    this.p(t, 4, 5, dark[0], dark[1], dark[2]); this.p(t, 5, 5, dark[0], dark[1], dark[2]);
+    this.p(t, 10, 5, dark[0], dark[1], dark[2]); this.p(t, 11, 5, dark[0], dark[1], dark[2]);
+    for (let x = 4; x < 12; x++) this.p(t, x, 10, dark[0], dark[1], dark[2]);
+  }
+  melonTex(t) {
+    this.speckle(t, [80, 160, 60], 0.08);
+    for (let x = 0; x < 16; x += 3) for (let y = 0; y < 16; y++) this.p(t, x, y, 50, 120, 40);
+  }
+  hayTex(t) {
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+      const f = 1 + (this.rand() - 0.5) * 0.14;
+      this.p(t, x, y, 214 * f, 178 * f, 64 * f);
+    }
+    for (let y = 2; y < 16; y += 4) for (let x = 0; x < 16; x++) this.p(t, x, y, 150, 120, 40);
+  }
+  iceTex(t) {
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+      const f = 1 + (this.rand() - 0.5) * 0.1;
+      this.p(t, x, y, 170 * f, 215 * f, 240 * f, 210);
+    }
+  }
+  spongeTex(t) {
+    this.speckle(t, [200, 200, 60], 0.1);
+    for (let i = 0; i < 10; i++) {
+      const x = (this.rand() * 16) | 0, y = (this.rand() * 16) | 0;
+      this.p(t, x, y, 150, 150, 30);
+    }
+  }
+  boneTex(t) {
+    this.speckle(t, [230, 222, 200], 0.06);
+    for (let x = 2; x < 16; x += 5) for (let y = 0; y < 16; y++) this.p(t, x, y, 200, 190, 165);
+  }
   drawAll() {
     const grass = this.palette.grass, stone = this.palette.stone, sand = this.palette.sand;
     this.speckle(TILE.GRASS_TOP, grass, 0.18);
@@ -291,6 +433,39 @@ export class TextureGenerator {
     this.lavaTex(TILE.LAVA);
     this.coalOreTex(TILE.COAL_ORE);
     this.ironOreTex(TILE.IRON_ORE);
+    // ここから追加タイル（インベントリ拡張分）
+    this.endCrystalTex(TILE.END_CRYSTAL);
+    this.enchantTop(TILE.ENCHANT_TOP);
+    this.enchantSide(TILE.ENCHANT_SIDE);
+    this.furnaceTop(TILE.FURNACE_TOP);
+    this.furnaceSide(TILE.FURNACE_SIDE);
+    this.bedTex(TILE.BED_RED, [200, 50, 50]);
+    this.bedTex(TILE.BED_BLUE, [50, 90, 200]);
+    this.bedTex(TILE.BED_GREEN, [60, 160, 70]);
+    this.bedTex(TILE.BED_YELLOW, [220, 200, 60]);
+    this.bedTex(TILE.BED_WHITE, [225, 225, 230]);
+    this.commandBlockTex(TILE.COMMAND_BLOCK);
+    this.pistonTex(TILE.PISTON);
+    this.stickyPistonTex(TILE.STICKY_PISTON);
+    this.redstoneTorchTex(TILE.REDSTONE_TORCH);
+    this.speckle(TILE.REDSTONE_BLOCK, [190, 20, 20], 0.12);
+    this.speckle(TILE.REDSTONE_LAMP, [235, 205, 140], 0.08);
+    this.leverTex(TILE.LEVER);
+    this.tntTex(TILE.TNT);
+    this.bookshelfTex(TILE.BOOKSHELF);
+    this.brickPattern(TILE.NETHER_BRICK, [40, 14, 14], [70, 24, 22]);
+    this.quartzTex(TILE.QUARTZ_BLOCK);
+    this.speckle(TILE.GOLD_BLOCK, [250, 210, 60], 0.06);
+    this.speckle(TILE.DIAMOND_BLOCK, [130, 230, 225], 0.06);
+    this.speckle(TILE.EMERALD_BLOCK, [40, 200, 110], 0.08);
+    this.brickPattern(TILE.STONE_BRICK, [150, 150, 150], [120, 120, 120]);
+    this.mossyStoneBrick(TILE.MOSSY_STONE_BRICK);
+    this.pumpkinTex(TILE.PUMPKIN);
+    this.melonTex(TILE.MELON_BLOCK);
+    this.hayTex(TILE.HAY_BALE);
+    this.iceTex(TILE.ICE);
+    this.spongeTex(TILE.SPONGE);
+    this.boneTex(TILE.BONE_BLOCK);
   }
   // 道具アイテム用アイコン（32x32 dataURL）
   itemIcon(key) {
