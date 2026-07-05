@@ -95,6 +95,8 @@ export class SoundManager {
   playJump() { this._playVariant(JUMP_VARIANTS); }
   playLand() { this._playVariant(LAND_VARIANTS); }
   playClick() { this._playVariant(CLICK_VARIANTS); }
+  playSwing() { this._playVariant(SWING_VARIANTS); }
+  playLaser() { this._playVariant(LASER_VARIANTS); }
 }
 
 // ---- 各アクションの音バリエーション（周波数・減衰・ノイズ比などを変えて複数用意） ----
@@ -136,4 +138,18 @@ const CLICK_VARIANTS = [
   { freq: 900,  decay: 0.05,  gain: 0.12, noiseMix: 0.20, wave: 'square' },
   { freq: 1100, decay: 0.045, gain: 0.11, noiseMix: 0.15, wave: 'square' },
   { freq: 750,  decay: 0.055, gain: 0.12, noiseMix: 0.25, wave: 'sine' }
+];
+
+// 剣・戦斧の素振り（風切り音寄り: ノイズ比率高め、鋭く短い減衰）
+const SWING_VARIANTS = [
+  { freq: 500, freqEnd: 220, decay: 0.10, gain: 0.24, noiseMix: 0.70, filterType: 'highpass', filterFreq: 1400, filterQ: 0.7, wave: 'sine' },
+  { freq: 560, freqEnd: 240, decay: 0.11, gain: 0.22, noiseMix: 0.65, filterType: 'highpass', filterFreq: 1600, filterQ: 0.8, wave: 'triangle' },
+  { freq: 440, freqEnd: 200, decay: 0.09, gain: 0.25, noiseMix: 0.75, filterType: 'highpass', filterFreq: 1200, filterQ: 0.6, wave: 'sine' }
+];
+
+// レーザー/プラズマ武器の発射音（SF風: 高音から急降下するオシレータ主体）
+const LASER_VARIANTS = [
+  { freq: 1400, freqEnd: 300, decay: 0.16, gain: 0.20, noiseMix: 0.12, wave: 'sawtooth' },
+  { freq: 1600, freqEnd: 260, decay: 0.14, gain: 0.19, noiseMix: 0.10, wave: 'square' },
+  { freq: 1250, freqEnd: 340, decay: 0.18, gain: 0.21, noiseMix: 0.15, wave: 'sawtooth' }
 ];

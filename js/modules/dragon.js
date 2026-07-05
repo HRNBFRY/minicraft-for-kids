@@ -82,9 +82,9 @@ class EnderDragon {
     }
     return true;
   }
-  hit() {
+  hit(dmg) {
     if (this.dead) return;
-    this.hp--;
+    this.hp -= (dmg == null ? 1 : dmg);
     this.flash = 0.18;
     this.matBody.color.setHex(0xaa2222);
     this.matDark.color.setHex(0x881818);
@@ -162,7 +162,7 @@ export default {
       for (const dr of arr) {
         if (dr.dead) continue;
         const t = dr.intersectRay(origin, dir, maxDist);
-        if (t >= 0) out.push({ dist: t, onHit: () => dr.hit() });
+        if (t >= 0) out.push({ dist: t, onHit: (dmg) => dr.hit(dmg) });
       }
       return out;
     });

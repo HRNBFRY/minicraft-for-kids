@@ -93,8 +93,9 @@ worlds/*.json         … どこで遊ぶか（地形・鉱石・モンスター
 
 ## 新しいモジュール（ドラゴン/ペット/ロボット/魔法/レーザー/乗り物/NPC/ダンジョン等）の追加手順
 
-モジュールはゲーム本体を書き換えずに機能を足すための仕組み。`js/modules/dragon.js`（ボス・敵の例）と
-`js/modules/pet.js`（プレイヤー追従・見た目だけの例）を参考にする。
+モジュールはゲーム本体を書き換えずに機能を足すための仕組み。`js/modules/dragon.js`（ボス・敵の例）、
+`js/modules/pet.js`（プレイヤー追従・見た目だけの例）、`js/modules/weapons.js`（道具アイテム＋攻撃ダメージ
+＋視覚エフェクトの例。剣5種・戦斧・弓・レーザー系3種の計10武器）を参考にする。
 
 1. `js/modules/xxxx.js` を作る。中身は次の形の default export ひとつだけ:
    ```js
@@ -111,8 +112,13 @@ worlds/*.json         … どこで遊ぶか（地形・鉱石・モンスター
    - `game.registerHook(moduleId, 'tick', dt => {...})` … 毎フレーム呼ばれる
    - `game.registerHook(moduleId, 'onEnterDim', dim => { ... return '追加メッセージ文字列 or null'; })`
      … 次元切替のたびに呼ばれる（オーバーワールド/ネザー/エンドのどれに入ったかは `dim` で判定）
-   - `game.registerHook(moduleId, 'getAttackCandidates', (origin, dir, maxDist) => [{dist, onHit}])`
-     … 左クリック/ZRで殴った時に、ブロックより優先して攻撃されるエンティティを返す
+   - `game.registerHook(moduleId, 'getAttackCandidates', (origin, dir, maxDist) => [{dist, onHit(dmg)}])`
+     … 左クリック/ZRで殴った時に、ブロックより優先して攻撃されるエンティティを返す。
+     `onHit` には攻撃側のダメージ量（下記 `getAttackDamage` 参照。省略時は1扱い）が渡る
+   - `game.registerHook(moduleId, 'getAttackDamage', (origin, dir, dist) => ダメージ量 or null)`
+     … 攻撃時に現在選択中の道具（武器）からダメージ量を算出する。`js/modules/weapons.js` の例を参照。
+     `dist` は対象までの距離、`origin`/`dir` はレーザー等の視覚エフェクトを描くのに使う。
+     どのモジュールも null を返した場合は既定値1（素手と同じ）になる
    - `game.registerHook(moduleId, 'hudLine', () => '文字列 or null')` … HUDに1行追加表示
    - `game.registerHook(moduleId, 'serialize', () => state)` /
      `game.registerHook(moduleId, 'deserialize', state => {...})` … セーブ/ロード対応

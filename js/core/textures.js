@@ -9,6 +9,20 @@ const DEFAULT_PALETTE = {
   sand: [219, 207, 163]
 };
 
+// 武器アイテムのアイコン配色（js/modules/weapons.js の武器キーに対応。itemIcon() が参照）
+const SWORD_ICONS = {
+  sword_wood:    { blade: '#c9a06a', edge: '#a9804a', guard: '#8a5a2a', handle: '#5c3a1e' },
+  sword_stone:   { blade: '#b9b9bc', edge: '#8f8f92', guard: '#6a4a2a', handle: '#5c3a1e' },
+  sword_iron:    { blade: '#e8e8ee', edge: '#b8b8c0', guard: '#8a5a2a', handle: '#5c3a1e' },
+  sword_gold:    { blade: '#ffd84a', edge: '#e0a820', guard: '#8a5a2a', handle: '#5c3a1e' },
+  sword_diamond: { blade: '#7cf0e0', edge: '#30c8b0', guard: '#8a5a2a', handle: '#5c3a1e' }
+};
+const GUN_ICONS = {
+  laser_gun:       { body: '#4a4a52', accent: '#ff3030' },
+  plasma_rifle:    { body: '#30405a', accent: '#40e0ff' },
+  rocket_launcher: { body: '#4a5040', accent: '#ffa030', big: true }
+};
+
 /* ---------------- TextureGenerator: Canvasで16x16テクスチャ生成 ---------------- */
 export class TextureGenerator {
   constructor(seed, palette) {
@@ -490,6 +504,32 @@ export class TextureGenerator {
         const dx = (x - 7.5) / 5.2, dy = (y - 8) / 6.8;
         if (dx * dx + dy * dy < 1) P(x, y, Math.random() < 0.22 ? '#8a2be2' : '#141018');
       }
+    } else if (SWORD_ICONS[key]) {
+      const sw = SWORD_ICONS[key];
+      const tip = [[12,1],[11,2],[10,3],[9,4],[8,5],[7,6],[6,7]];
+      for (const [x, y] of tip) { P(x, y, sw.blade); P(x - 1, y, sw.edge); }
+      P(5, 8, sw.guard); P(6, 8, sw.guard); P(6, 9, sw.guard); P(5, 9, sw.guard); P(4, 9, sw.guard);
+      P(4, 10, sw.handle); P(3, 11, sw.handle); P(3, 12, sw.handle); P(2, 12, sw.handle); P(2, 13, sw.handle);
+      P(2, 10, '#3a2a18');
+    } else if (key === 'battle_axe') {
+      const shaft = [[3, 13], [4, 12], [5, 11], [6, 10], [7, 9], [8, 8], [9, 7]];
+      for (const [x, y] of shaft) P(x, y, '#6a4a2a');
+      const head = [[9, 3], [10, 3], [11, 3], [10, 4], [11, 4], [12, 4], [9, 5], [10, 5], [11, 5], [10, 6], [9, 6]];
+      for (const [x, y] of head) P(x, y, '#9098a0');
+      P(12, 3, '#c0c8d0'); P(12, 5, '#c0c8d0');
+    } else if (key === 'bow') {
+      for (let a = 0; a <= 28; a++) {
+        const t = -Math.PI * 0.38 + a / 28 * Math.PI * 0.76;
+        P(Math.round(5 + Math.cos(t) * 6.5), Math.round(8 + Math.sin(t) * 6.5), '#8a5a2a');
+      }
+      for (let y = 2; y <= 14; y++) P(11, y, '#e8e0c8');
+    } else if (GUN_ICONS[key]) {
+      const gn = GUN_ICONS[key];
+      for (let x = 3; x <= 12; x++) { P(x, 7, gn.body); P(x, 8, gn.body); }
+      P(4, 9, gn.body); P(4, 10, gn.body); P(4, 11, gn.body); P(3, 10, gn.body); P(3, 11, gn.body);
+      for (let x = 12; x <= 14; x++) P(x, 7, gn.accent);
+      P(13, 6, gn.accent);
+      if (gn.big) { P(14, 6, gn.accent); P(14, 8, gn.accent); }
     }
     return c.toDataURL();
   }

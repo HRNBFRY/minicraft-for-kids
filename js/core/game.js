@@ -61,7 +61,7 @@ export class Game {
     // モジュール接続点
     this.itemDefs = Object.assign({}, CORE_ITEM_DEFS);
     this.itemHandlers = {};
-    this.hooks = { tick: [], onEnterDim: [], getAttackCandidates: [], serialize: [], deserialize: [], hudLine: [] };
+    this.hooks = { tick: [], onEnterDim: [], getAttackCandidates: [], getAttackDamage: [], serialize: [], deserialize: [], hudLine: [] };
     this.moduleIds = [];
 
     this.initRenderer();
@@ -178,6 +178,16 @@ export class Game {
       if (r) out = out.concat(r);
     }
     return out;
+  }
+  // 現在選択中の道具（武器モジュール等）に応じた攻撃ダメージ量を算出する。
+  // どのモジュールも該当しない場合は既定値1（素手/従来動作と同じ）。
+  // origin/dir/dist はビーム等の視覚エフェクトを描くモジュールのために渡す。
+  collectAttackDamage(origin, dir, dist) {
+    for (const h of this.hooks.getAttackDamage) {
+      const r = h.fn(origin, dir, dist);
+      if (r != null) return r;
+    }
+    return 1;
   }
   collectHudLines() {
     const out = [];
@@ -585,7 +595,7 @@ export class Game {
         h.y + 0.5 - eye.y,
         h.z + 0.5 - eye.z);
     }
-    if (best && bestT < blockDist) { best.onHit(); return; }
+    if (best && bestT < blockDist) { best.onHit(this.collectAttackDamage(eye, this._dir, bestT)); return; }
     if (hitOk) {
       const h = this._hit;
       const id = this.world.getBlock(h.x, h.y, h.z);

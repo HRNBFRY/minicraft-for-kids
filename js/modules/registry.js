@@ -9,8 +9,9 @@
 // category: 'monster'  -> worlds/*.json の "monsters" 配列で出現を制御
 // category: 'feature'  -> profiles/*.json の enabledFeatures で on/off を制御
 export const MODULE_LOADERS = {
-  dragon: { category: 'monster', load: () => import('./dragon.js') },
-  pet:    { category: 'feature', load: () => import('./pet.js') }
+  dragon:  { category: 'monster', load: () => import('./dragon.js') },
+  pet:     { category: 'feature', load: () => import('./pet.js') },
+  weapons: { category: 'feature', load: () => import('./weapons.js') }
 };
 
 // profile / world の設定から「今回インストールするモジュール一覧」を決定する。
