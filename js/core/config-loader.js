@@ -81,6 +81,7 @@ export function applyWorldConfig(profile, world) {
       sky: hexToInt(ov.sky, base.sky),
       fogNear: ov.fogNear !== undefined ? ov.fogNear : base.fogNear,
       fogFar: ov.fogFar !== undefined ? ov.fogFar : (base.fogFar != null ? base.fogFar : CFG.RENDER_DIST * 16 - 4),
+      fogFarAuto: ov.fogFar === undefined && base.fogFar == null,
       ambIntensity: ov.ambIntensity !== undefined ? ov.ambIntensity : base.ambIntensity,
       ambColor: hexToInt(ov.ambColor, base.ambColor),
       sunIntensity: ov.sunIntensity !== undefined ? ov.sunIntensity : base.sunIntensity,

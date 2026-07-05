@@ -1,7 +1,7 @@
 {
   "id": "sister",
   "extends": "default",
-  "playerName": "いもうと",
+  "playerName": "おねえちゃん",
   "skin": { "color": "#ff6fa8" },
   "difficulty": "easy",
   "enabledFeatures": { "pet": true },

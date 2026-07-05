@@ -4,6 +4,7 @@ import { TextureGenerator } from './textures.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import { GamepadInput } from './gamepad.js';
+import { TouchControls } from './touch.js';
 import { Inventory } from './inventory.js';
 import { SaveManager } from './save.js';
 import { Weather } from './weather.js';
@@ -35,6 +36,15 @@ export class Game {
     this.featureInventory = profile.enabledFeatures.inventory !== false;
     this.gamepadEnabled = profile.enabledFeatures.gamepad !== false;
     this.startDim = DIM.OVER;
+    this.pauseOpen = false;
+    this.isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+    this.renderLevels = [
+      { label: '近', dist: 5 },
+      { label: '中', dist: 8 },
+      { label: '遠', dist: 14 }
+    ];
+    this.renderLevelIndex = this.renderLevels.findIndex(l => l.dist === CFG.RENDER_DIST);
+    if (this.renderLevelIndex < 0) this.renderLevelIndex = 1;
     this.portalCd = 0;
     this.lastPos = [null, null, null];
     this.lastEnterDimNotes = [];
@@ -104,10 +114,32 @@ export class Game {
     this.msgEl = document.getElementById('msg');
     this.curIcon = document.getElementById('curIcon');
     this.curName = document.getElementById('curName');
+    this.btnMenuOpen = document.getElementById('btnMenuOpen');
+    this.pauseMenuEl = document.getElementById('pauseMenu');
+    this.btnResume = document.getElementById('btnResume');
+    this.btnRenderDist = document.getElementById('btnRenderDist');
+    this.btnShadowToggle = document.getElementById('btnShadowToggle');
+    this.btnHome = document.getElementById('btnHome');
     this.updateCurBlock();
     this.applyProfileUI();
 
+    if (this.isTouch) {
+      this.touch = new TouchControls(this);
+      this.touch.mount();
+    } else {
+      this.touch = null;
+    }
+
     this.bindEvents();
+    this.updatePauseMenuUI();
+
+    try {
+      const saved = localStorage.getItem('minicraft_render_dist_v1');
+      if (saved !== null) {
+        const idx = parseInt(saved, 10);
+        if (idx >= 0 && idx < this.renderLevels.length && idx !== this.renderLevelIndex) this.setRenderDist(idx);
+      }
+    } catch (e) { /* ignore */ }
 
     setInterval(() => this.saveMgr.save(), 4000);
     window.addEventListener('beforeunload', () => this.saveMgr.save());
@@ -211,10 +243,21 @@ export class Game {
 
   bindEvents() {
     const canvas = this.renderer.domElement;
-    this.hintEl.addEventListener('click', () => this.requestLock());
-    canvas.addEventListener('click', () => {
-      if (!this.inventory.open) this.requestLock();
+    this.hintEl.addEventListener('click', () => {
+      if (this.isTouch) this.startTouchPlay();
+      else this.requestLock();
     });
+    canvas.addEventListener('click', () => {
+      if (this.inventory.open || this.isTouch) return;
+      this.requestLock();
+    });
+    this.btnMenuOpen.addEventListener('click', () => {
+      if (this.pauseOpen) this.closePauseMenu(); else this.openPauseMenu();
+    });
+    this.btnResume.addEventListener('click', () => this.closePauseMenu());
+    this.btnRenderDist.addEventListener('click', () => this.cycleRenderDist());
+    this.btnShadowToggle.addEventListener('click', () => { this.toggleShadows(); this.updatePauseMenuUI(); });
+    this.btnHome.addEventListener('click', () => this.goToTitle());
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;
       this.syncOverlays();
@@ -241,7 +284,10 @@ export class Game {
     });
   }
 
-  playing() { return (this.locked || this.gpStarted) && !this.inventory.open; }
+  playing() {
+    return (this.locked || this.gpStarted || (this.touch && this.touch.active)) &&
+      !this.inventory.open && !this.pauseOpen;
+  }
 
   requestLock() {
     try {
@@ -249,18 +295,66 @@ export class Game {
       if (p && p.catch) p.catch(() => {});
     } catch (e) { /* 連打などによる失敗は無視 */ }
   }
+  startTouchPlay() {
+    if (!this.touch) return;
+    this.touch.start();
+    this.syncOverlays();
+  }
   syncOverlays() {
-    this.hintEl.classList.toggle('hidden', this.locked || this.gpStarted || this.inventory.open);
+    const active = this.locked || this.gpStarted || (this.touch && this.touch.active);
+    this.hintEl.classList.toggle('hidden', active || this.inventory.open || this.pauseOpen);
   }
   onInventoryToggle(open) {
     if (open) {
       if (this.locked) document.exitPointerLock();
-    } else if (!this.gpStarted) {
+    } else if (!this.gpStarted && !this.isTouch) {
       this.requestLock();
     }
     this.syncOverlays();
   }
   toggleInventory() { if (this.featureInventory) this.inventory.toggle(); }
+
+  openPauseMenu() {
+    if (this.inventory.open || this.pauseOpen) return;
+    this.pauseOpen = true;
+    if (this.locked) document.exitPointerLock();
+    this.updatePauseMenuUI();
+    this.pauseMenuEl.classList.remove('hidden');
+    this.syncOverlays();
+  }
+  closePauseMenu() {
+    if (!this.pauseOpen) return;
+    this.pauseOpen = false;
+    this.pauseMenuEl.classList.add('hidden');
+    if (!this.gpStarted && !this.isTouch) this.requestLock();
+    this.syncOverlays();
+  }
+  updatePauseMenuUI() {
+    if (!this.btnRenderDist) return;
+    this.btnRenderDist.textContent = '描画範囲: ' + this.renderLevels[this.renderLevelIndex].label;
+    this.btnShadowToggle.textContent = '影MOD: ' + (this.shadows ? 'ON' : 'OFF');
+  }
+  goToTitle() {
+    if (!confirm('トップ画面に戻りますか？（自動セーブ済み）')) return;
+    try { this.saveMgr.save(); } catch (e) { /* ignore */ }
+    location.reload();
+  }
+
+  // 描画範囲（近・中・遠）切替。各次元の World の生成/描画オフセットとフォグを再計算する。
+  setRenderDist(idx) {
+    idx = Math.max(0, Math.min(this.renderLevels.length - 1, idx));
+    this.renderLevelIndex = idx;
+    const dist = this.renderLevels[idx].dist;
+    CFG.RENDER_DIST = dist;
+    for (const w of this.worlds) w.rebuildOffsets();
+    for (const s of this.derived.sky) if (s.fogFarAuto) s.fogFar = dist * 16 - 4;
+    const cfg = this.derived.sky[this.dim];
+    this.scene.fog.far = cfg.fogFar;
+    try { localStorage.setItem('minicraft_render_dist_v1', String(idx)); } catch (e) { /* ignore */ }
+    this.showMsg('描画範囲: ' + this.renderLevels[idx].label);
+    this.updatePauseMenuUI();
+  }
+  cycleRenderDist() { this.setRenderDist((this.renderLevelIndex + 1) % this.renderLevels.length); }
 
   onKeyDown(code) {
     if (code === 'KeyE') {
@@ -269,6 +363,8 @@ export class Game {
       this.toggleShadows();
     } else if (code === 'Escape') {
       if (this.inventory.open) this.inventory.setOpen(false);
+      else if (this.pauseOpen) this.closePauseMenu();
+      else if (this.locked || this.gpStarted || (this.touch && this.touch.active)) this.openPauseMenu();
       else this.gpStarted = false;
       this.syncOverlays();
     } else if (code === 'Space') {
@@ -305,6 +401,12 @@ export class Game {
       if (g.held(0)) c.jump = true;         // B: ジャンプ / 上昇（Switch版と同じ）
       if (g.held(1)) c.down = true;         // A: しゃがみ / 下降（Switch版と同じ）
       if (g.held(11)) c.down = true;        // 右スティック押込み: ゆっくり下降（Switch版と同じ）
+    }
+    if (this.touch && this.touch.active) {
+      c.f += this.touch.moveF;
+      c.s += this.touch.moveS;
+      if (this.touch.jumpHeld) c.jump = true;
+      if (this.touch.downHeld) c.down = true;
     }
     if (c.f > 1) c.f = 1; else if (c.f < -1) c.f = -1;
     if (c.s > 1) c.s = 1; else if (c.s < -1) c.s = -1;
@@ -571,7 +673,9 @@ export class Game {
       'Block: ' + this.inventory.entryName(this.inventory.current) + '\n' +
       '飛行: ' + (this.player.flying ? 'ON' : 'OFF') +
       '　影: ' + (this.shadows ? 'ON' : 'OFF') +
-      (this.gamepadEnabled && this.pad.connected ? '　🎮接続中' : '');
+      '　描画: ' + this.renderLevels[this.renderLevelIndex].label +
+      (this.gamepadEnabled && this.pad.connected ? '　🎮接続中' : '') +
+      (this.touch && this.touch.active ? '　📱タッチ操作' : '');
     const extra = this.collectHudLines();
     if (extra.length) txt += '\n' + extra.join('\n');
     this.hudEl.textContent = txt;
@@ -592,6 +696,11 @@ export class Game {
         this.player.yaw -= this.pad.axis(2) * 2.8 * dt;
         this.player.pitch = Math.max(-1.55, Math.min(1.55,
           this.player.pitch - this.pad.axis(3) * 2.0 * dt));
+      }
+      if (this.touch && this.touch.active) {
+        const d = this.touch.consumeLook();
+        this.player.yaw -= d.x * 0.0035;
+        this.player.pitch = Math.max(-1.55, Math.min(1.55, this.player.pitch - d.y * 0.0035));
       }
       this.player.update(dt, this.ctl);
       this.checkPortalStep(now);

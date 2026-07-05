@@ -278,6 +278,9 @@ export class World {
   }
   key(cx, cz) { return cx + cz * CFG.CHUNKS; }
 
+  // 描画範囲（CFG.RENDER_DIST）変更時に呼び直し、生成/メッシュ済み範囲を再計算する
+  rebuildOffsets() { this.offsets = buildOffsets(); }
+
   // 地下ブロック抽選（鉱石 -> なければ石）。ore設定は worlds/*.json の "ores" 配列。
   pickUnderground(gx, y, gz) {
     for (let i = 0; i < this.oreDefs.length; i++) {

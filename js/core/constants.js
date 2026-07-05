@@ -17,7 +17,7 @@ export const CFG = {
   HEIGHT: 128,
   SEA: 30,
   SNOW_LINE: 72,
-  RENDER_DIST: 6,
+  RENDER_DIST: 8,
   GEN_PER_FRAME: 4,
   MESH_PER_FRAME: 2,
   REMESH_PER_FRAME: 3,
