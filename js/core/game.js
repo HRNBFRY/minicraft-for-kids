@@ -131,11 +131,13 @@ export class Game {
     this.btnRenderDist = document.getElementById('btnRenderDist');
     this.btnShadowToggle = document.getElementById('btnShadowToggle');
     this.btnViewToggle = document.getElementById('btnViewToggle');
+    this.btnTouchLayout = document.getElementById('btnTouchLayout');
     this.btnHome = document.getElementById('btnHome');
     this.updateCurBlock();
     this.applyProfileUI();
 
     if (this.isTouch) {
+      this.btnTouchLayout.classList.remove('hidden');
       this.touch = new TouchControls(this);
       this.touch.mount();
     } else {
@@ -243,29 +245,90 @@ export class Game {
 
   // 三人称視点用の簡易プレイヤーアバター（頭・胴・腕・脚のブロック体）。
   // 一人称時は非表示。profile.skin.color を体の色として使う。
+  // 腕・脚は肩/腰の位置をピボットにしたグループに包み、歩行・攻撃モーションで
+  // rotation.x を回せるようにしている（updateAvatarAnim参照）。
   buildAvatar(profile) {
     const skinHex = (profile.skin && profile.skin.color) || '#4fa8ff';
     const bodyMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(skinHex) });
     const headMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(0xe0a878) });
     const group = new THREE.Group();
-    const parts = [
-      new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), headMat),
-      new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.3), bodyMat),
-      new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.6, 0.18), bodyMat),
-      new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.6, 0.18), bodyMat),
-      new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.75, 0.2), bodyMat),
-      new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.75, 0.2), bodyMat)
-    ];
-    parts[0].position.set(0, 1.6, 0);   // 頭
-    parts[1].position.set(0, 1.05, 0);  // 胴
-    parts[2].position.set(-0.34, 1.05, 0); // 左腕
-    parts[3].position.set(0.34, 1.05, 0);  // 右腕
-    parts[4].position.set(-0.13, 0.375, 0); // 左脚
-    parts[5].position.set(0.13, 0.375, 0);  // 右脚
-    for (const m of parts) { m.castShadow = true; m.receiveShadow = true; group.add(m); }
+
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), headMat);
+    head.position.set(0, 1.6, 0);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.3), bodyMat);
+    body.position.set(0, 1.05, 0);
+
+    const makeLimb = (w, h, d, px, py, pz, meshOffsetY) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(px, py, pz);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bodyMat);
+      mesh.position.set(0, meshOffsetY, 0);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      pivot.add(mesh);
+      return pivot;
+    };
+    const armL = makeLimb(0.18, 0.6, 0.18, -0.34, 1.35, 0, -0.3);   // 左腕（肩ピボット）
+    const armR = makeLimb(0.18, 0.6, 0.18, 0.34, 1.35, 0, -0.3);    // 右腕（肩ピボット）
+    const legL = makeLimb(0.2, 0.75, 0.2, -0.13, 0.75, 0, -0.375);  // 左脚（腰ピボット）
+    const legR = makeLimb(0.2, 0.75, 0.2, 0.13, 0.75, 0, -0.375);   // 右脚（腰ピボット）
+
+    for (const m of [head, body]) { m.castShadow = true; m.receiveShadow = true; group.add(m); }
+    for (const pv of [armL, armR, legL, legR]) group.add(pv);
+
     group.visible = false;
     this.scene.add(group);
     this.avatarGroup = group;
+    this.avatarParts = { head, body, armL, armR, legL, legR };
+    this._avatarWalkT = 0;
+    this._avatarAttack = 0;      // >0 の間は右腕を攻撃モーションで上書きする（0〜1で進行度の逆数）
+    this._avatarAttackDur = 0.25;
+    this._avatarAttackStyle = 'melee';
+  }
+
+  // 攻撃/採掘のたびに呼び、三人称アバターの右腕を振るモーションを再生する。
+  // style: 'melee'（大きく振り下ろす）/ 'ranged'（構えて素早く反動を取る）
+  triggerAvatarAttackAnim(style) {
+    if (!this.avatarParts) return;
+    this._avatarAttack = 1;
+    this._avatarAttackDur = style === 'ranged' ? 0.16 : 0.26;
+    this._avatarAttackStyle = style;
+  }
+
+  // 現在選択中のアイテムが weapons モジュール等の武器なら、その種別に応じたモーションを返す
+  currentAttackStyle() {
+    const key = this.inventory.current;
+    const def = typeof key === 'string' ? this.itemDefs[key] : null;
+    return (def && def.weapon && def.weapon.type === 'ranged') ? 'ranged' : 'melee';
+  }
+
+  // 三人称アバターの歩行・攻撃モーションを毎フレーム更新する（表示中でなくても軽量なので常に更新）
+  updateAvatarAnim(dt) {
+    const parts = this.avatarParts;
+    if (!parts) return;
+    const p = this.player;
+    const hSpeed = Math.hypot(p.vel.x, p.vel.z);
+    const moving = p.onGround && hSpeed > 0.4;
+    if (moving) this._avatarWalkT += dt * (2.2 + hSpeed * 1.0);
+    const amp = moving ? 0.55 : 0;
+    const swing = Math.sin(this._avatarWalkT) * amp;
+    const lerp = 1 - Math.exp(-10 * dt);
+
+    parts.legL.rotation.x += (swing - parts.legL.rotation.x) * lerp;
+    parts.legR.rotation.x += (-swing - parts.legR.rotation.x) * lerp;
+    const armTargetL = -swing * 0.7;
+    const armTargetR = swing * 0.7;
+    parts.armL.rotation.x += (armTargetL - parts.armL.rotation.x) * lerp;
+
+    if (this._avatarAttack > 0) {
+      this._avatarAttack = Math.max(0, this._avatarAttack - dt / this._avatarAttackDur);
+      const t = 1 - this._avatarAttack;
+      const angle = this._avatarAttackStyle === 'ranged'
+        ? -Math.sin(Math.min(t * 1.6, 1) * Math.PI) * 0.45
+        : -Math.sin(t * Math.PI) * 1.25;
+      parts.armR.rotation.x = angle;
+    } else {
+      parts.armR.rotation.x += (armTargetR - parts.armR.rotation.x) * lerp;
+    }
   }
 
   // 一人称 <-> 三人称（自分の姿が見える視点）の切り替え。ボタンは Switch版の配置に合わせ、
@@ -341,6 +404,12 @@ export class Game {
     this.btnRenderDist.addEventListener('click', () => { this.sound.playClick(); this.cycleRenderDist(); });
     this.btnShadowToggle.addEventListener('click', () => { this.sound.playClick(); this.toggleShadows(); this.updatePauseMenuUI(); });
     this.btnViewToggle.addEventListener('click', () => { this.sound.playClick(); this.toggleView(); });
+    this.btnTouchLayout.addEventListener('click', () => {
+      this.sound.playClick();
+      if (!this.touch) return;
+      this.pauseMenuEl.classList.add('hidden');
+      this.touch.enterLayoutEdit();
+    });
     this.btnHome.addEventListener('click', () => { this.sound.playClick(); this.goToTitle(); });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;
@@ -421,6 +490,7 @@ export class Game {
     if (!this.pauseOpen) return;
     this.pauseOpen = false;
     this.pauseMenuEl.classList.add('hidden');
+    if (this.touch) this.touch.exitLayoutEdit();
     if (!this.gpStarted && !this.isTouch) this.requestLock();
     this.syncOverlays();
   }
@@ -583,6 +653,7 @@ export class Game {
   // 破壊 or モジュール提供のエンティティ攻撃
   doBreak() {
     if (!this.playing()) return;
+    this.triggerAvatarAttackAnim(this.currentAttackStyle());
     this.camera.getWorldDirection(this._dir);
     const eye = this.aimOrigin();
     const cands = this.collectAttackCandidates(eye, this._dir, 100);
@@ -598,6 +669,10 @@ export class Game {
         h.z + 0.5 - eye.z);
     }
     if (best && bestT < blockDist) { best.onHit(this.collectAttackDamage(eye, this._dir, bestT)); return; }
+    // 攻撃対象（エンティティ）がいなくても、武器を構えていれば狙った方向へ
+    // ビーム/矢/ロケット等の視覚エフェクトを飛ばす（ブロック命中ならそこまで、
+    // 何もなければ最大射程まで）。ダメージはここでは誰にも適用しない。
+    this.collectAttackDamage(eye, this._dir, hitOk ? blockDist : 100);
     if (hitOk) {
       const h = this._hit;
       const id = this.world.getBlock(h.x, h.y, h.z);
@@ -855,6 +930,7 @@ export class Game {
       if (this.mousePlaceHeld) this.continuousPlace(now);
       if (this.touch && this.touch.active && this.touch.placeHeld) this.continuousPlace(now);
       this.player.update(dt, this.ctl);
+      this.updateAvatarAnim(dt);
       this.updateFootsteps(dt);
       if (this.player.justJumped) this.sound.playJump();
       if (this.player.justLanded) this.sound.playLand();
